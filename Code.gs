@@ -55,6 +55,7 @@ function importPastMessages() {
     const channels = getBotJoinedChannels();
     if (!channels.length) {
       Logger.log("Bot参加チャンネルがありません");
+      props.deleteProperty("IMPORT_ACTIVE");
       deleteImportPastMessagesTrigger();
       return;
     }
@@ -121,6 +122,7 @@ function importPastMessages() {
 // 1-2 importPastMessages を5分ごとに自動実行するトリガーを作成
 function createImportPastMessagesTrigger() {
   deleteImportPastMessagesTrigger();
+  PropertiesService.getScriptProperties().setProperty("IMPORT_ACTIVE", "1");
 
   ScriptApp
     .newTrigger("importPastMessages")
@@ -234,6 +236,11 @@ function processSlackEventQueue() {
       return;
     }
 
+    if (props.getProperty("IMPORT_ACTIVE") === "1") {
+      Logger.log("processSlackEventQueue: importPastMessages 実行中のためキュー処理を保留します");
+      return;
+    }
+
     const queue = JSON.parse(props.getProperty(queueProp) || "[]");
 
     if (!queue.length) {
@@ -262,7 +269,7 @@ function processSlackEventQueue() {
     const doneKey = `DONE_${item.key}`;
 
     // 直近で処理済みならスキップ
-    if (cache.get(doneKey)) {
+    if (props.getProperty(item.key) || cache.get(doneKey)) {
       return;
     }
 
@@ -680,6 +687,7 @@ function cleanupRuntimeProperties() {
     const isRuntimeKey =
       key === "IMPORT_CHANNEL_INDEX" ||
       key === "IMPORT_CURSOR" ||
+      key === "IMPORT_ACTIVE" ||
       key.startsWith("DONE_") ||
       /^[CGD][A-Z0-9]+:\d+\.\d+$/.test(key); // 旧形式: Cxxxx:171...
 
