@@ -1,3 +1,18 @@
+# Google Apps Script / clasp
+.clasp.json
+.clasprc.json
+
+# local secrets
+.env
+.env.*
+*.secret
+secrets.*
+credentials.*
+token.*
+
+# macOS
+.DS_Store
+
 # Logs
 logs
 *.log
