@@ -1,42 +1,26 @@
 // ===============================================================
 // 初期設定・復旧メモ
-//
-// 【今後のSlack投稿の自動保存】
-// 最初に1回だけ 2-2 createSlackEventQueueTrigger() を手動実行する。
-//
-// この関数は，processSlackEventQueue() を1分ごとに実行する
-// 時間主導トリガーをコードから作成するためのもの。
-// 毎日実行する関数ではない。
-//
-// 自動保存がおかしくなった場合は，Apps Script左メニューの
-// 「トリガー」から processSlackEventQueue のトリガーだけを削除し，
-// createSlackEventQueueTrigger() をもう一度手動実行する。
-//
-// 【過去ログ取得】
-// 過去ログを保存したい場合は，1-2 createImportPastMessagesTrigger() を
-// 1回だけ手動実行する。
-// これは importPastMessages() を5分ごとに実行するトリガーを作成する。
-//
-// 過去ログ取得を最初からやり直す場合は，resetImportPastMessages() を
-// 手動実行して進捗をリセットしてから，
-// createImportPastMessagesTrigger() を再実行する。
+
+// 1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
+// 2. 今後の投稿保存: `createSlackEventQueueTrigger()` を 1 回実行する
+// 3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
 // ===============================================================
 // 歯車>スクリプトプロパティに`SLACK_TOKEN`, `DOC_FOLDER_ID`を設定
 
-// SlackAPI管理画面>OAuth & Permissions>OAuth Tokens
+// 1. SlackAPI管理画面>OAuth & Permissions>OAuth Tokens
 const SLACK_TOKEN = PropertiesService.getScriptProperties().getProperty('SLACK_TOKEN');
 if (!SLACK_TOKEN) {
   throw new Error("Script Properties に SLACK_TOKEN が設定されていません");
 }
 
-// GoogleDriveのFolderのリンク>https://drive.google.com/drive/folders/ここがDOC_FOLDER_ID
+// 2. GoogleDriveのFolderのリンク>https://drive.google.com/drive/folders/ここがDOC_FOLDER_ID
 const DOC_FOLDER_ID = PropertiesService.getScriptProperties().getProperty('DOC_FOLDER_ID');
 if (!DOC_FOLDER_ID) {
   throw new Error("Script Properties に DOC_FOLDER_ID が設定されていません");
 }
 // ==============================================================
+// 参考
 
-// 参考 ============
 // https://zenn.dev/gemcook/articles/38beb65aa8371c
 // ===============================================================
 
