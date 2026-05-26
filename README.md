@@ -7,6 +7,7 @@ Slack 投稿を Google Docs に保存する Google Apps Script です。
 
 ### 手動実行(過去ログ)
 - Bot 参加チャンネルの過去ログを 5 分ごとに分割取得する
+- 親メッセージを基準に古い投稿が上、新しい投稿が下になるように保存する
 
 ### 自動実行(新規メッセージ)
 - Slack Events API の投稿イベントを受け取る
@@ -59,4 +60,5 @@ Event Subscriptions > Subscribe to bot events:
 
 - Slack 署名検証は未実装
 - 長いスレッドのページング取得は未対応
+- 既存 Docs の並び順は自動では並べ替えない
 - 大量投稿では Script Properties の容量上限に注意
