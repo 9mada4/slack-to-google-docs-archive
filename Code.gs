@@ -67,6 +67,30 @@ function importPastMessages() {
 
     Logger.log(`${channelName}: この回では ${messages.length} 件を処理します`);
 
+    const shouldPrepend = Boolean(cursor);
+    const insertIndexesByYear = {};
+
+    const writeImportedMessage = msg => {
+      const options = {};
+
+      if (shouldPrepend) {
+        const year = getMessageThreadYear(msg);
+
+        if (insertIndexesByYear[year] === undefined) {
+          const doc = getOrCreateDocForYear(year, channel);
+          insertIndexesByYear[year] = getHistoricalInsertIndex(doc.getBody());
+        }
+
+        options.insertIndex = insertIndexesByYear[year];
+      }
+
+      const result = writeMessageToDoc(msg, channel, options);
+
+      if (shouldPrepend) {
+        insertIndexesByYear[getMessageThreadYear(msg)] = result.nextInsertIndex;
+      }
+    };
+
     messages.forEach(msg => {
       const key = `${channelId}:${msg.ts}`;
       if (isMessageProcessed(key)) return;
@@ -79,12 +103,12 @@ function importPastMessages() {
             const threadKey = `${channelId}:${tMsg.ts}`;
             if (isMessageProcessed(threadKey)) return;
 
-            writeMessageToDoc(tMsg, channel);
+            writeImportedMessage(tMsg);
             markMessageProcessed(threadKey);
           });
         }
       } else {
-        writeMessageToDoc(msg, channel);
+        writeImportedMessage(msg);
         markMessageProcessed(key);
       }
     });
@@ -509,7 +533,9 @@ function writeMessageToDoc(msg, channel, options) {
     });
   }
 
-  return true;
+  return {
+    nextInsertIndex: insertIndex
+  };
 }
 
 function getThreadMarker(channelId, threadTs) {
@@ -544,6 +570,26 @@ function getThreadInsertIndex(body, markerIndex) {
   }
 
   return null;
+}
+
+function getMessageThreadYear(msg) {
+  const threadTs = msg.thread_ts ? parseFloat(msg.thread_ts) : parseFloat(msg.ts);
+  return Utilities.formatDate(new Date(threadTs * 1000), "JST", "yyyy");
+}
+
+function getHistoricalInsertIndex(body) {
+  for (let i = 0; i < body.getNumChildren(); i++) {
+    const child = body.getChild(i);
+
+    if (
+      child.getType() === DocumentApp.ElementType.PARAGRAPH &&
+      child.asParagraph().getHeading() === DocumentApp.ParagraphHeading.HEADING1
+    ) {
+      return i + 1;
+    }
+  }
+
+  return 0;
 }
 
 // 3-1 ==============
