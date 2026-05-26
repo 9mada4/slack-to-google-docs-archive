@@ -286,7 +286,20 @@ function processSlackEventQueue() {
 
       const channel = getChannelInfo(item.channelId);
 
-      writeMessageToDoc(msg, channel);
+      const isReply = msg.thread_ts && msg.thread_ts !== msg.ts;
+
+      if (isReply) {
+        const appended = appendReplyToExistingThread(msg, channel, threadMessages[0]);
+
+        if (!appended) {
+          threadMessages.forEach(tMsg => {
+            writeMessageToDoc(tMsg, channel);
+          });
+        }
+      } else {
+        writeMessageToDoc(msg, channel);
+      }
+
       cache.put(doneKey, "done", 21600); // 6時間だけ重複防止
     } catch (e) {
       Logger.log(`Slackイベント処理失敗: ${item.key} / ${e}`);
@@ -358,7 +371,40 @@ function deleteSlackEventQueueTrigger() {
 
 
 // 3 ==========================================================
-function writeMessageToDoc(msg, channel) {
+function appendReplyToExistingThread(msg, channel, parentMsg) {
+  const channelId = channel && channel.id ? channel.id : msg.channel || "unknown";
+  const threadTs = msg.thread_ts || msg.ts;
+  const year = Utilities.formatDate(new Date(parseFloat(threadTs) * 1000), "JST", "yyyy");
+  const doc = getOrCreateDocForYear(year, channel || {
+    id: channelId,
+    name: channelId
+  });
+  const body = doc.getBody();
+  let parentIndex = findParagraphIndex(body, getThreadMarker(channelId, threadTs));
+
+  if (parentIndex === -1 && parentMsg) {
+    const parentName = getUserName(parentMsg.user);
+    const parentTime = Utilities.formatDate(
+      new Date(parseFloat(parentMsg.ts) * 1000),
+      "JST",
+      "yyyy/MM/dd HH:mm"
+    );
+
+    parentIndex = findParagraphIndex(body, `${parentName} (${parentTime})`);
+  }
+
+  if (parentIndex === -1) {
+    return false;
+  }
+
+  const result = writeMessageToDoc(msg, channel, {
+    insertIndex: getThreadInsertIndex(body, parentIndex)
+  });
+
+  return Boolean(result);
+}
+
+function writeMessageToDoc(msg, channel, options) {
   const threadTs = msg.thread_ts ? parseFloat(msg.thread_ts) : parseFloat(msg.ts);
   const year = Utilities.formatDate(new Date(threadTs * 1000), "JST", "yyyy");
   const doc = getOrCreateDocForYear(year, channel || {
@@ -366,6 +412,29 @@ function writeMessageToDoc(msg, channel) {
     name: msg.channel || "unknown"
   });
   const body = doc.getBody();
+  let insertIndex = options && typeof options.insertIndex === "number"
+    ? options.insertIndex
+    : null;
+
+  const addParagraph = text => {
+    if (insertIndex === null) {
+      return body.appendParagraph(text);
+    }
+
+    const paragraph = body.insertParagraph(insertIndex, text);
+    insertIndex++;
+    return paragraph;
+  };
+
+  const addImage = blob => {
+    if (insertIndex === null) {
+      return body.appendImage(blob);
+    }
+
+    const image = body.insertImage(insertIndex, blob);
+    insertIndex++;
+    return image;
+  };
 
   const name = getUserName(msg.user);
 
@@ -386,9 +455,14 @@ function writeMessageToDoc(msg, channel) {
   const isReply = msg.thread_ts && msg.thread_ts !== msg.ts;
 
   if (!isReply) {
-    body.appendParagraph(`\n============================`);
-    body.appendParagraph(`${name} (${time})`).setBold(true);
-    body.appendParagraph(text || "(テキストなし)");
+    const channelId = channel && channel.id ? channel.id : msg.channel || "unknown";
+
+    addParagraph(`\n============================`);
+    addParagraph(getThreadMarker(channelId, msg.ts))
+      .setFontSize(8)
+      .setForegroundColor("#999999");
+    addParagraph(`${name} (${time})`).setBold(true);
+    addParagraph(text || "(テキストなし)");
   } else {
     const parentTime = Utilities.formatDate(
       new Date(parseFloat(msg.thread_ts) * 1000),
@@ -396,7 +470,7 @@ function writeMessageToDoc(msg, channel) {
       "MM/dd HH:mm"
     );
 
-    body.appendParagraph(
+    addParagraph(
       `  ┗ [${parentTime}] ${name} (${time}): ${text}`
     ).setIndentStart(20);
   }
@@ -411,7 +485,7 @@ function writeMessageToDoc(msg, channel) {
             throw new Error("画像Blobを取得できませんでした");
           }
 
-          const inlineImg = body.appendImage(imgBlob);
+          const inlineImg = addImage(imgBlob);
           const width = 300;
           const height = inlineImg.getHeight() * (width / inlineImg.getWidth());
 
@@ -423,8 +497,7 @@ function writeMessageToDoc(msg, channel) {
 
         } catch (e) {
           const label = file.title || file.name || file.id || "unknown";
-          const p = body
-            .appendParagraph(`  (画像の取得に失敗しました: ${label})`)
+          const p = addParagraph(`  (画像の取得に失敗しました: ${label})`)
             .setItalic(true);
 
           if (isReply) {
@@ -432,8 +505,7 @@ function writeMessageToDoc(msg, channel) {
           }
 
           if (file.permalink) {
-            const linkP = body
-              .appendParagraph(`  Slackファイル: ${file.permalink}`)
+            const linkP = addParagraph(`  Slackファイル: ${file.permalink}`)
               .setItalic(true);
 
             if (isReply) {
@@ -446,6 +518,42 @@ function writeMessageToDoc(msg, channel) {
       }
     });
   }
+
+  return true;
+}
+
+function getThreadMarker(channelId, threadTs) {
+  return `[slack-thread:${channelId}:${threadTs}]`;
+}
+
+function findParagraphIndex(body, text) {
+  for (let i = 0; i < body.getNumChildren(); i++) {
+    const child = body.getChild(i);
+
+    if (
+      child.getType() === DocumentApp.ElementType.PARAGRAPH &&
+      child.asParagraph().getText() === text
+    ) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function getThreadInsertIndex(body, markerIndex) {
+  for (let i = markerIndex + 1; i < body.getNumChildren(); i++) {
+    const child = body.getChild(i);
+
+    if (
+      child.getType() === DocumentApp.ElementType.PARAGRAPH &&
+      child.asParagraph().getText().includes("============================")
+    ) {
+      return i;
+    }
+  }
+
+  return null;
 }
 
 // 3-1 ==============
