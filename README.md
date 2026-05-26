@@ -1,7 +1,9 @@
 # slack-to-google-docs-archive
 
-Slack 投稿を Google Docs に保存する Google Apps Script です。
+Slack 投稿を Google Docs に保存する Google Apps Script です．
 参考: https://zenn.dev/gemcook/articles/38beb65aa8371c
+GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript にコピペ．ファイル名は任意．
+⚠️ 一時変数を保存するのでGoogleドキュメント不可．必ずスプレッドシートをGASファイルに設定．
 
 ## 使い方
 
@@ -62,5 +64,5 @@ Event Subscriptions > Subscribe to bot events:
 - Slack 署名検証は未実装
 - 長いスレッドのページング取得は未対応
 - 既存 Docs の並び順は自動では並べ替えない
-- 大量投稿では Script Properties の容量上限に注意
+- 処理済み記録は `_slack_processed_messages` シートに保存する
 - 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` を解除する

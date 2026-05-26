@@ -18,6 +18,8 @@ const DOC_FOLDER_ID = PropertiesService.getScriptProperties().getProperty('DOC_F
 if (!DOC_FOLDER_ID) {
   throw new Error("Script Properties に DOC_FOLDER_ID が設定されていません");
 }
+const PROCESSED_MESSAGES_SHEET_NAME = "_slack_processed_messages";
+let processedMessageKeyCache = null;
 // ==============================================================
 // 参考
 
@@ -67,7 +69,7 @@ function importPastMessages() {
 
     messages.forEach(msg => {
       const key = `${channelId}:${msg.ts}`;
-      if (props.getProperty(key)) return;
+      if (isMessageProcessed(key)) return;
 
       if (msg.reply_count && msg.reply_count > 0) {
         const threadMessages = getThreadMessages(channelId, msg.ts);
@@ -75,15 +77,15 @@ function importPastMessages() {
         if (threadMessages) {
           threadMessages.forEach(tMsg => {
             const threadKey = `${channelId}:${tMsg.ts}`;
-            if (props.getProperty(threadKey)) return;
+            if (isMessageProcessed(threadKey)) return;
 
             writeMessageToDoc(tMsg, channel);
-            props.setProperty(threadKey, "done");
+            markMessageProcessed(threadKey);
           });
         }
       } else {
         writeMessageToDoc(msg, channel);
-        props.setProperty(key, "done");
+        markMessageProcessed(key);
       }
     });
 
@@ -253,7 +255,7 @@ function processSlackEventQueue() {
     const doneKey = `DONE_${item.key}`;
 
     // 直近で処理済みならスキップ
-    if (props.getProperty(item.key) || cache.get(doneKey)) {
+    if (isMessageProcessed(item.key) || cache.get(doneKey)) {
       return;
     }
 
@@ -278,10 +280,14 @@ function processSlackEventQueue() {
         if (!appended) {
           threadMessages.forEach(tMsg => {
             writeMessageToDoc(tMsg, channel);
+            markMessageProcessed(`${item.channelId}:${tMsg.ts}`);
           });
+        } else {
+          markMessageProcessed(item.key);
         }
       } else {
         writeMessageToDoc(msg, channel);
+        markMessageProcessed(item.key);
       }
 
       cache.put(doneKey, "done", 21600); // 6時間だけ重複防止
@@ -764,8 +770,73 @@ function getChannelInfo(channelId) {
 // 10 ============
 function resetImportPastMessages() {
   cleanupRuntimeProperties();
+  clearProcessedMessageRecords();
   deleteImportPastMessagesTrigger();
   Logger.log("過去ログインポートの進捗と処理済み記録をリセットし，トリガーも削除しました");
+}
+
+function isMessageProcessed(key) {
+  return getProcessedMessageKeySet().has(key);
+}
+
+function markMessageProcessed(key) {
+  if (!key || isMessageProcessed(key)) return;
+
+  getProcessedMessagesSheet().appendRow([key, new Date()]);
+  getProcessedMessageKeySet().add(key);
+}
+
+function getProcessedMessageKeySet() {
+  if (processedMessageKeyCache) {
+    return processedMessageKeyCache;
+  }
+
+  const sheet = getProcessedMessagesSheet();
+  const lastRow = sheet.getLastRow();
+  const keys = new Set();
+
+  if (lastRow >= 2) {
+    const values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+
+    values.forEach(row => {
+      if (row[0]) {
+        keys.add(String(row[0]));
+      }
+    });
+  }
+
+  processedMessageKeyCache = keys;
+  return processedMessageKeyCache;
+}
+
+function getProcessedMessagesSheet() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (!spreadsheet) {
+    throw new Error("処理済み記録用のスプレッドシートが見つかりません");
+  }
+
+  let sheet = spreadsheet.getSheetByName(PROCESSED_MESSAGES_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(PROCESSED_MESSAGES_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["message_key", "processed_at"]);
+  }
+
+  return sheet;
+}
+
+function clearProcessedMessageRecords() {
+  const sheet = getProcessedMessagesSheet();
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, 2).clearContent();
+  }
+
+  processedMessageKeyCache = null;
+  Logger.log("処理済みメッセージ記録をクリアしました");
 }
 
 // 11 ============================================================
