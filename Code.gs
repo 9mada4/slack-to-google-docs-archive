@@ -483,10 +483,95 @@ function fetchSlackImageBlob(file) {
 
 // 4 ==================
 function getThreadMessages(channel, ts) {
-  const url = `https://slack.com/api/conversations.replies?channel=${channel}&ts=${ts}`;
-  const res = UrlFetchApp.fetch(url, { "headers": { "Authorization": "Bearer " + SLACK_TOKEN } });
-  const json = JSON.parse(res.getContentText());
-  return json.ok ? json.messages : null;
+  const messages = [];
+  let cursor = "";
+  let retryCount = 0;
+
+  do {
+    const params = [
+      `channel=${encodeURIComponent(channel)}`,
+      `ts=${encodeURIComponent(ts)}`,
+      `limit=200`
+    ];
+
+    if (cursor) {
+      params.push(`cursor=${encodeURIComponent(cursor)}`);
+    }
+
+    const url = `https://slack.com/api/conversations.replies?${params.join("&")}`;
+    const res = UrlFetchApp.fetch(url, {
+      "headers": { "Authorization": "Bearer " + SLACK_TOKEN },
+      muteHttpExceptions: true
+    });
+
+    const code = res.getResponseCode();
+    if (code === 429) {
+      retryCount++;
+      if (retryCount > 3) {
+        Logger.log("conversations.replies rate limited too many times");
+        return null;
+      }
+
+      const retryAfterSeconds = getRetryAfterSeconds(res);
+      Logger.log(`conversations.replies rate limited. retry after ${retryAfterSeconds} seconds`);
+      Utilities.sleep(retryAfterSeconds * 1000);
+      continue;
+    }
+
+    retryCount = 0;
+
+    if (code < 200 || code >= 300) {
+      Logger.log(`conversations.replies HTTP failed: ${code} / ${res.getContentText()}`);
+      return null;
+    }
+
+    const json = JSON.parse(res.getContentText());
+
+    if (!json.ok) {
+      Logger.log("conversations.replies failed: " + json.error);
+      return null;
+    }
+
+    if (json.messages && json.messages.length) {
+      messages.push(...json.messages);
+    }
+
+    cursor = json.response_metadata && json.response_metadata.next_cursor
+      ? json.response_metadata.next_cursor
+      : "";
+
+    if (cursor) {
+      Utilities.sleep(1200);
+    }
+
+  } while (cursor);
+
+  return messages;
+}
+
+function getRetryAfterSeconds(res) {
+  const headers = res.getAllHeaders ? res.getAllHeaders() : res.getHeaders();
+  const retryAfter = getHeaderValue(headers, "Retry-After");
+  const seconds = Number(Array.isArray(retryAfter) ? retryAfter[0] : retryAfter);
+
+  if (!seconds || seconds < 1) {
+    return 60;
+  }
+
+  return Math.min(seconds, 300);
+}
+
+function getHeaderValue(headers, name) {
+  if (!headers) return "";
+
+  const lowerName = name.toLowerCase();
+  for (const key in headers) {
+    if (String(key).toLowerCase() === lowerName) {
+      return headers[key];
+    }
+  }
+
+  return "";
 }
 
 // 5 ==========
