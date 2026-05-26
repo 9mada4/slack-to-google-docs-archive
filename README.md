@@ -1,6 +1,7 @@
 # slack-to-google-docs-archive
 
 Slack 投稿を Google Docs に保存する Google Apps Script です。
+参考: https://zenn.dev/gemcook/articles/38beb65aa8371c
 
 ## 実装済み
 
@@ -21,10 +22,32 @@ Slack 投稿を Google Docs に保存する Google Apps Script です。
 
 ## 設定
 
-Apps Script のスクリプトプロパティに設定します。
+Apps Script の 左の歯車 > スクリプトプロパティ に設定します。
 
-- `SLACK_TOKEN`
-- `DOC_FOLDER_ID`
+1. `SLACK_TOKEN`
+
+Slack App は Bot User OAuth Token (`xoxb-...`) を使います。
+
+OAuth & Permissions > Bot Token Scopes:
+
+- `channels:read`
+- `channels:history`
+- `groups:read`
+- `groups:history`
+- `files:read`
+- `users:read`
+
+Event Subscriptions > Subscribe to bot events:
+
+- Enable Events: On
+- Subscribe to bot events:
+  - `message.channels`
+  - `message.groups`
+
+参考記事の `reactions:read` / `reaction_added` は、現行実装では未使用です。
+
+2. `DOC_FOLDER_ID`
+- GoogleDriveのFolderのリンク>https://drive.google.com/drive/folders/ここがDOC_FOLDER_ID
 
 ## 使い方
 
