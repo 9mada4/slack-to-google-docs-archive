@@ -3,6 +3,12 @@
 Slack 投稿を Google Docs に保存する Google Apps Script です。
 参考: https://zenn.dev/gemcook/articles/38beb65aa8371c
 
+## 使い方
+
+1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
+2. 今後の投稿保存: `createSlackEventQueueTrigger()` を 1 回実行する
+3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
+
 ## 実装済み
 
 ### 手動実行(過去ログ)
@@ -50,11 +56,6 @@ Event Subscriptions > Subscribe to bot events:
 2. `DOC_FOLDER_ID`
 - GoogleDriveのFolderのリンク>https://drive.google.com/drive/folders/ここがDOC_FOLDER_ID
 
-## 使い方
-
-1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
-2. 今後の投稿保存: `createSlackEventQueueTrigger()` を 1 回実行する
-3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
 
 ## 注意点
 
@@ -62,3 +63,4 @@ Event Subscriptions > Subscribe to bot events:
 - 長いスレッドのページング取得は未対応
 - 既存 Docs の並び順は自動では並べ替えない
 - 大量投稿では Script Properties の容量上限に注意
+- 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` を解除する
