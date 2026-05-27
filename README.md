@@ -8,9 +8,9 @@ GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript に
 ## 使い方
 
 1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
-2. 今後の投稿保存: `createSlackEventQueueTrigger()` を 1 回実行する
+2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときは `resetSlackEventQueue()` を 1 回実行する
 3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
-   - `resetImportPastMessages()` は未処理の Slack イベントキューも削除する
+   - `resetImportPastMessages()` は過去ログ取得の進捗と処理済み記録を削除する
 
 ## 実装済み
 
@@ -21,6 +21,7 @@ GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript に
 ### 自動実行(新規メッセージ)
 - Slack Events API の投稿イベントを受け取る
 - 新規投稿をキューに積み、1 分ごとに Google Docs へ保存する
+- 新規投稿の自動保存が止まった場合は `resetSlackEventQueue()` でキューと関連トリガーをリセットする
 
 ### 共通
 - チャンネル別フォルダ、年別ドキュメントに保存する
@@ -28,7 +29,7 @@ GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript に
 - メンションをユーザー名に変換する
 - 画像添付を Google Docs に埋め込む
 - ユーザー名、チャンネル情報、処理済み状態を6hキャッシュ・記録する
-- 各種トリガーの作成・削除、過去ログ進捗リセットに対応する
+- 各種トリガーの作成・削除、過去ログ進捗リセット、Slack イベントキューのリセットに対応する
 
 ## 設定
 
@@ -66,4 +67,5 @@ Event Subscriptions > Subscribe to bot events:
 - 長いスレッドのページング取得は未対応
 - 既存 Docs の並び順は自動では並べ替えない
 - 処理済み記録は `_slack_processed_messages` シートに保存する
-- 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` と未処理キューを解除する
+- 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` を解除する
+- 新規投稿の自動保存だけが止まった場合は、`resetSlackEventQueue()` で未処理キューと `processSlackEventQueue` トリガーをリセットする

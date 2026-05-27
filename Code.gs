@@ -2,7 +2,7 @@
 // 初期設定・復旧メモ
 
 // 1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
-// 2. 今後の投稿保存: `createSlackEventQueueTrigger()` を 1 回実行する
+// 2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときは `resetSlackEventQueue()` を 1 回実行する
 // 3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
 // ===============================================================
 // 歯車>スクリプトプロパティに`SLACK_TOKEN`, `DOC_FOLDER_ID`を設定
@@ -20,6 +20,8 @@ if (!DOC_FOLDER_ID) {
 }
 const PROCESSED_MESSAGES_SHEET_NAME = "_slack_processed_messages";
 const SLACK_EVENT_QUEUE_PROP = "SLACK_EVENT_QUEUE";
+const SLACK_EVENT_DONE_CACHE_KEYS_PROP = "SLACK_EVENT_DONE_CACHE_KEYS";
+const SLACK_EVENT_DONE_CACHE_KEY_LIMIT = 100;
 let processedMessageKeyCache = null;
 // ==============================================================
 // 参考
@@ -197,7 +199,7 @@ function doPost(e) {
       const props = PropertiesService.getScriptProperties();
 
       const cache = CacheService.getScriptCache();
-      const doneKey = `DONE_${key}`;
+      const doneKey = getSlackEventDoneCacheKey_(key);
       
       // 直近で処理済みなら何もしない
       if (cache.get(doneKey)) {
@@ -274,13 +276,13 @@ function processSlackEventQueue() {
 
   targets.forEach(item => {
     try {
-    const cache = CacheService.getScriptCache();
-    const doneKey = `DONE_${item.key}`;
+      const cache = CacheService.getScriptCache();
+      const doneKey = getSlackEventDoneCacheKey_(item.key);
 
-    // 直近で処理済みならスキップ
-    if (isMessageProcessed(item.key) || cache.get(doneKey)) {
-      return;
-    }
+      // 直近で処理済みならスキップ
+      if (isMessageProcessed(item.key) || cache.get(doneKey)) {
+        return;
+      }
 
       // Slackから該当メッセージを取り直す
       const threadMessages = getThreadMessages(item.channelId, item.threadTs);
@@ -314,6 +316,7 @@ function processSlackEventQueue() {
       }
 
       cache.put(doneKey, "done", 21600); // 6時間だけ重複防止
+      rememberSlackEventDoneCacheKey_(doneKey);
     } catch (e) {
       Logger.log(`Slackイベント処理失敗: ${item.key} / ${e}`);
       failed.push(item);
@@ -379,6 +382,86 @@ function deleteSlackEventQueueTrigger() {
   });
 
   Logger.log("processSlackEventQueue の既存トリガーを削除しました");
+}
+
+function resetSlackEventQueue() {
+  const queue = getSlackEventQueue_();
+  const doneCacheKeys = getSlackEventDoneCacheKeys_(queue);
+
+  if (doneCacheKeys.length) {
+    removeSlackEventDoneCaches_(doneCacheKeys);
+  }
+
+  cleanupSlackEventQueueProperties();
+  deleteSlackEventQueueTrigger();
+  Logger.log("Slackイベントキュー，自動実行用プロパティ，関連キャッシュ，トリガーをリセットしました");
+}
+
+function getSlackEventQueue_() {
+  const rawQueue = PropertiesService.getScriptProperties().getProperty(SLACK_EVENT_QUEUE_PROP);
+  if (!rawQueue) return [];
+
+  try {
+    const queue = JSON.parse(rawQueue);
+    return Array.isArray(queue) ? queue : [];
+  } catch (e) {
+    Logger.log(`SlackイベントキューのJSON解析に失敗しました: ${e}`);
+    return [];
+  }
+}
+
+function getSlackEventDoneCacheKey_(key) {
+  return `DONE_${key}`;
+}
+
+function removeSlackEventDoneCaches_(doneCacheKeys) {
+  const cache = CacheService.getScriptCache();
+
+  for (let i = 0; i < doneCacheKeys.length; i += SLACK_EVENT_DONE_CACHE_KEY_LIMIT) {
+    cache.removeAll(doneCacheKeys.slice(i, i + SLACK_EVENT_DONE_CACHE_KEY_LIMIT));
+  }
+}
+
+function rememberSlackEventDoneCacheKey_(doneKey) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const keys = getSlackEventDoneCacheKeysFromProperties_();
+
+    if (keys.indexOf(doneKey) === -1) {
+      keys.push(doneKey);
+    }
+
+    props.setProperty(
+      SLACK_EVENT_DONE_CACHE_KEYS_PROP,
+      JSON.stringify(keys.slice(-SLACK_EVENT_DONE_CACHE_KEY_LIMIT))
+    );
+  } catch (e) {
+    Logger.log(`Slackイベント処理済みキャッシュキーの記録に失敗しました: ${e}`);
+  }
+}
+
+function getSlackEventDoneCacheKeys_(queue) {
+  const queuedKeys = queue
+    .map(item => item && item.key ? getSlackEventDoneCacheKey_(item.key) : "")
+    .filter(Boolean);
+
+  return Array.from(new Set(getSlackEventDoneCacheKeysFromProperties_().concat(queuedKeys)));
+}
+
+function getSlackEventDoneCacheKeysFromProperties_() {
+  const rawKeys = PropertiesService
+    .getScriptProperties()
+    .getProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
+
+  if (!rawKeys) return [];
+
+  try {
+    const keys = JSON.parse(rawKeys);
+    return Array.isArray(keys) ? keys.filter(Boolean) : [];
+  } catch (e) {
+    Logger.log(`Slackイベント処理済みキャッシュキーのJSON解析に失敗しました: ${e}`);
+    return [];
+  }
 }
 
 
@@ -817,8 +900,8 @@ function resetImportPastMessages() {
   cleanupRuntimeProperties();
   clearProcessedMessageRecords();
   deleteImportPastMessagesTrigger();
-  deleteSlackEventQueueTrigger();
-  Logger.log("過去ログインポートの進捗，Slackイベントキュー，処理済み記録をリセットし，トリガーも削除しました");
+  cleanupLegacyProcessedMessageProperties();
+  Logger.log("過去ログインポートの進捗と処理済み記録をリセットし，importPastMessages トリガーを削除しました");
 }
 
 function isMessageProcessed(key) {
@@ -886,7 +969,7 @@ function clearProcessedMessageRecords() {
 }
 
 // 11 ============================================================
-// 一時スクリプトプロパティだけ削除する
+// 過去ログ取得用の一時スクリプトプロパティだけ削除する
 // SLACK_TOKEN と DOC_FOLDER_ID は消さない
 function cleanupRuntimeProperties() {
   const props = PropertiesService.getScriptProperties();
@@ -896,17 +979,44 @@ function cleanupRuntimeProperties() {
     const isRuntimeKey =
       key === "IMPORT_CHANNEL_INDEX" ||
       key === "IMPORT_CURSOR" ||
-      key === "IMPORT_ACTIVE" ||
-      key === SLACK_EVENT_QUEUE_PROP ||
-      key.startsWith("DONE_") ||
-      /^[CGD][A-Z0-9]+:\d+\.\d+$/.test(key); // 旧形式: Cxxxx:171...
+      key === "IMPORT_ACTIVE";
 
     if (isRuntimeKey) {
       props.deleteProperty(key);
     }
   });
 
-  Logger.log("一時プロパティを削除しました。SLACK_TOKEN と DOC_FOLDER_ID は残しています");
+  Logger.log("過去ログ取得用の一時プロパティを削除しました。SLACK_TOKEN と DOC_FOLDER_ID は残しています");
+}
+
+function cleanupSlackEventQueueProperties() {
+  const props = PropertiesService.getScriptProperties();
+  const keys = props.getKeys();
+
+  keys.forEach(key => {
+    if (
+      key === SLACK_EVENT_QUEUE_PROP ||
+      key === SLACK_EVENT_DONE_CACHE_KEYS_PROP ||
+      key.startsWith("DONE_")
+    ) {
+      props.deleteProperty(key);
+    }
+  });
+
+  Logger.log("Slackイベントキュー用の一時プロパティを削除しました");
+}
+
+function cleanupLegacyProcessedMessageProperties() {
+  const props = PropertiesService.getScriptProperties();
+  const keys = props.getKeys();
+
+  keys.forEach(key => {
+    if (/^[CGD][A-Z0-9]+:\d+\.\d+$/.test(key)) {
+      props.deleteProperty(key);
+    }
+  });
+
+  Logger.log("旧形式の処理済みメッセージプロパティを削除しました");
 }
 
 // TEST =========================
