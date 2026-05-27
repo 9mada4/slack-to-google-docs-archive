@@ -29,6 +29,8 @@ let processedMessageKeyCache = null;
 // https://zenn.dev/gemcook/articles/38beb65aa8371c
 // ===============================================================
 
+// ボタン用関数 =======================================
+// 確認ダイアログを表示
 function confirmCreateImportPastMessagesTrigger() {
   confirmAndRun_(
     "過去ログ取得を開始しますか？",
@@ -66,7 +68,8 @@ function confirmAndRun_(title, message, callback) {
 }
 
 
-// 1-1 ===========================================================
+// 1-1 ===================================================================
+// =======================================================================
 function importPastMessages() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
@@ -197,8 +200,14 @@ function deleteImportPastMessagesTrigger() {
 
   Logger.log("importPastMessages の既存トリガーを削除しました");
 }
+// =======================================================================
 
-// 2 =============================================================
+
+
+
+// 2 =====================================================================
+// =======================================================================
+
 function doPost(e) {
   const params = JSON.parse(e.postData.contents);
 
@@ -417,6 +426,7 @@ function deleteSlackEventQueueTrigger() {
   Logger.log("processSlackEventQueue の既存トリガーを削除しました");
 }
 
+// 2-4 
 function resetSlackEventQueue() {
   const queue = getSlackEventQueue_();
   const doneCacheKeys = getSlackEventDoneCacheKeys_(queue);
@@ -429,6 +439,9 @@ function resetSlackEventQueue() {
   deleteSlackEventQueueTrigger();
   Logger.log("Slackイベントキュー，自動実行用プロパティ，関連キャッシュ，トリガーをリセットしました");
 }
+
+// 3 キャッシュ管理用関数 ================================================
+// =======================================================================
 
 function getSlackEventQueue_() {
   const rawQueue = PropertiesService.getScriptProperties().getProperty(SLACK_EVENT_QUEUE_PROP);
@@ -508,9 +521,12 @@ function getSlackEventDoneCacheKeysFromProperties_() {
   }
 }
 
+// =======================================================================
 
 
-// 3 ==========================================================
+// 4 既存スレッド位置を探して返信を挿入 ==================================
+// =======================================================================
+
 function appendReplyToExistingThread(msg, channel, parentMsg) {
   const channelId = channel && channel.id ? channel.id : msg.channel || "unknown";
   const threadTs = msg.thread_ts || msg.ts;
