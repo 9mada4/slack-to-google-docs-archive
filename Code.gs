@@ -524,7 +524,7 @@ function getSlackEventDoneCacheKeysFromProperties_() {
 // =======================================================================
 
 
-// 4 既存スレッド位置を探して返信を挿入 ==================================
+// 4-1 既存スレッド位置を探して返信を挿入 ================================
 // =======================================================================
 
 function appendReplyToExistingThread(msg, channel, parentMsg) {
@@ -559,6 +559,8 @@ function appendReplyToExistingThread(msg, channel, parentMsg) {
 
   return Boolean(result);
 }
+
+// 4-2 Slack メッセージを Docs に書く
 
 function writeMessageToDoc(msg, channel, options) {
   const threadTs = msg.thread_ts ? parseFloat(msg.thread_ts) : parseFloat(msg.ts);
@@ -680,6 +682,8 @@ function writeMessageToDoc(msg, channel, options) {
   };
 }
 
+// 4-3 Docs 内の挿入位置探索用
+
 function getThreadMarker(channelId, threadTs) {
   return `[slack-thread:${channelId}:${threadTs}]`;
 }
@@ -734,7 +738,9 @@ function getHistoricalInsertIndex(body) {
   return 0;
 }
 
-// 3-1 ==============
+// 5 =====================================================================
+// =======================================================================
+
 // Slack画像URLを複数候補から軽量に取得する
 function fetchSlackImageBlob(file) {
   const urls = [
@@ -767,7 +773,8 @@ function fetchSlackImageBlob(file) {
   return null;
 }
 
-// 4 ==================
+// 6 =====================================================================
+// =======================================================================
 function getThreadMessages(channel, ts) {
   const url = `https://slack.com/api/conversations.replies?channel=${channel}&ts=${ts}`;
   const res = UrlFetchApp.fetch(url, { "headers": { "Authorization": "Bearer " + SLACK_TOKEN } });
@@ -775,7 +782,9 @@ function getThreadMessages(channel, ts) {
   return json.ok ? json.messages : null;
 }
 
-// 5 ==========
+// 7 =====================================================================
+// =======================================================================
+
 function getUserName(userId) {
   if (!userId) return "unknown";
 
@@ -797,7 +806,9 @@ function getUserName(userId) {
   } catch (e) { return userId; }
 }
 
-// 6 ===============
+// 8 =====================================================================
+// =======================================================================
+
 function getOrCreateDocForYear(year, channel) {
   const channelId = channel && channel.id ? channel.id : "unknown";
   const channelName = channel && channel.name ? channel.name : channelId;
@@ -829,7 +840,9 @@ function getOrCreateDocForYear(year, channel) {
   return doc;
 }
 
-// 7 =============
+// 9 =====================================================================
+// =======================================================================
+
 function getBotJoinedChannels() {
   const channels = [];
   let cursor = "";
@@ -870,7 +883,9 @@ function getBotJoinedChannels() {
   return channels;
 }
 
-// 8 =============
+// 10 チャンネルの過去ログを取得 ==========================================
+// =======================================================================
+
 function getAllChannelMessages(channelId, cursor) {
   const params = [
     `channel=${encodeURIComponent(channelId)}`,
@@ -908,7 +923,9 @@ function getAllChannelMessages(channelId, cursor) {
   };
 }
 
-// 9 ============
+// 11 チャンネル情報を取得 ================================================
+// =======================================================================
+
 function getChannelInfo(channelId) {
   if (!channelId) {
     return {
@@ -955,7 +972,10 @@ function getChannelInfo(channelId) {
   };
 }
 
-// 10 ============
+// 12 処理済みメッセージ・過去ログリセット管理 ============================
+// =======================================================================
+
+// 12-1 過去ログ取得の進捗と処理済み記録をリセット
 function resetImportPastMessages() {
   cleanupRuntimeProperties();
   clearProcessedMessageRecords();
@@ -964,10 +984,12 @@ function resetImportPastMessages() {
   Logger.log("過去ログインポートの進捗と処理済み記録をリセットし，importPastMessages トリガーを削除しました");
 }
 
+// 12-2 メッセージが処理済みか確認
 function isMessageProcessed(key) {
   return getProcessedMessageKeySet().has(key);
 }
 
+// 12-3 メッセージを処理済みとして記録
 function markMessageProcessed(key) {
   if (!key || isMessageProcessed(key)) return;
 
@@ -975,6 +997,7 @@ function markMessageProcessed(key) {
   getProcessedMessageKeySet().add(key);
 }
 
+// 12-4 処理済みメッセージキーをシートから読み込む
 function getProcessedMessageKeySet() {
   if (processedMessageKeyCache) {
     return processedMessageKeyCache;
@@ -998,6 +1021,7 @@ function getProcessedMessageKeySet() {
   return processedMessageKeyCache;
 }
 
+// 12-5 処理済み記録用シートを取得または作成
 function getProcessedMessagesSheet() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   if (!spreadsheet) {
@@ -1016,6 +1040,7 @@ function getProcessedMessagesSheet() {
   return sheet;
 }
 
+// 12-6 処理済みメッセージ記録をクリア
 function clearProcessedMessageRecords() {
   const sheet = getProcessedMessagesSheet();
   const lastRow = sheet.getLastRow();
@@ -1028,8 +1053,10 @@ function clearProcessedMessageRecords() {
   Logger.log("処理済みメッセージ記録をクリアしました");
 }
 
-// 11 ============================================================
-// 過去ログ取得用の一時スクリプトプロパティだけ削除する
+// 13 一時スクリプトプロパティ削除 ========================================
+// =======================================================================
+
+// 13-1 過去ログ取得用の一時スクリプトプロパティだけ削除
 // SLACK_TOKEN と DOC_FOLDER_ID は消さない
 function cleanupRuntimeProperties() {
   const props = PropertiesService.getScriptProperties();
@@ -1049,6 +1076,7 @@ function cleanupRuntimeProperties() {
   Logger.log("過去ログ取得用の一時プロパティを削除しました。SLACK_TOKEN と DOC_FOLDER_ID は残しています");
 }
 
+// 13-2 Slackイベントキュー用の一時スクリプトプロパティを削除
 function cleanupSlackEventQueueProperties() {
   const props = PropertiesService.getScriptProperties();
   const keys = props.getKeys();
@@ -1066,6 +1094,7 @@ function cleanupSlackEventQueueProperties() {
   Logger.log("Slackイベントキュー用の一時プロパティを削除しました");
 }
 
+// 13-3 旧形式の処理済みメッセージプロパティを削除
 function cleanupLegacyProcessedMessageProperties() {
   const props = PropertiesService.getScriptProperties();
   const keys = props.getKeys();
@@ -1079,7 +1108,10 @@ function cleanupLegacyProcessedMessageProperties() {
   Logger.log("旧形式の処理済みメッセージプロパティを削除しました");
 }
 
-// TEST =========================
+// TEST ===================================================================
+// =======================================================================
+
+// TEST-1 時間主導トリガー作成テスト
 function testCreateSimpleTrigger() {
   deleteImportPastMessagesTrigger();
 
@@ -1092,11 +1124,12 @@ function testCreateSimpleTrigger() {
   Logger.log("test trigger created");
 }
 
+// TEST-2 testCreateSimpleTrigger 用のトリガー先
 function testTriggerTarget() {
   Logger.log("test trigger fired");
 }
 
-// Bot参加チャンネルのIDとチャンネル名を確認する
+// TEST-3 Bot参加チャンネルのIDとチャンネル名を確認する
 function testGetBotJoinedChannelNames() {
   const channels = getBotJoinedChannels();
 
