@@ -19,6 +19,7 @@ if (!DOC_FOLDER_ID) {
   throw new Error("Script Properties に DOC_FOLDER_ID が設定されていません");
 }
 const PROCESSED_MESSAGES_SHEET_NAME = "_slack_processed_messages";
+const SLACK_EVENT_QUEUE_PROP = "SLACK_EVENT_QUEUE";
 let processedMessageKeyCache = null;
 // ==============================================================
 // 参考
@@ -185,7 +186,6 @@ function doPost(e) {
     }
 
     const key = `${channelId}:${ts}`;
-    const queueProp = "SLACK_EVENT_QUEUE";
 
     const lock = LockService.getScriptLock();
 
@@ -204,7 +204,7 @@ function doPost(e) {
         return ContentService.createTextOutput("ok");
       }
 
-      const queue = JSON.parse(props.getProperty(queueProp) || "[]");
+      const queue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
 
       // すでにキュー済みなら重複追加しない
       const alreadyQueued = queue.some(item => item.key === key);
@@ -216,7 +216,7 @@ function doPost(e) {
           threadTs: threadTs
         });
 
-        props.setProperty(queueProp, JSON.stringify(queue));
+        props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(queue));
 
         // Slack投稿が来たときだけ，後処理トリガーを作成する
         createSlackEventQueueTrigger();
@@ -234,7 +234,6 @@ function doPost(e) {
 
 // 2-1 doPostで積んだSlackイベントを後処理する
 function processSlackEventQueue() {
-  const queueProp = "SLACK_EVENT_QUEUE";
   const props = PropertiesService.getScriptProperties();
   const lock = LockService.getScriptLock();
 
@@ -251,11 +250,11 @@ function processSlackEventQueue() {
       return;
     }
 
-    const queue = JSON.parse(props.getProperty(queueProp) || "[]");
+    const queue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
 
     if (!queue.length) {
       deleteSlackEventQueueTrigger();
-      props.deleteProperty(queueProp);
+      props.deleteProperty(SLACK_EVENT_QUEUE_PROP);
       return;
     }
 
@@ -263,7 +262,7 @@ function processSlackEventQueue() {
     targets = queue.slice(0, 5);
     const rest = queue.slice(5);
 
-    props.setProperty(queueProp, JSON.stringify(rest));
+    props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(rest));
 
   } finally {
     if (lock.hasLock()) {
@@ -329,8 +328,8 @@ function processSlackEventQueue() {
         return;
       }
 
-      const queue = JSON.parse(props.getProperty(queueProp) || "[]");
-      props.setProperty(queueProp, JSON.stringify(failed.concat(queue)));
+      const queue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
+      props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(failed.concat(queue)));
 
     } finally {
       if (lock.hasLock()) {
@@ -340,9 +339,9 @@ function processSlackEventQueue() {
   }
 
   // 未処理キューが残っていなければ，毎分トリガーを止める
-  const remainingQueue = JSON.parse(props.getProperty(queueProp) || "[]");
+  const remainingQueue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
   if (!remainingQueue.length) {
-    props.deleteProperty(queueProp);
+    props.deleteProperty(SLACK_EVENT_QUEUE_PROP);
     deleteSlackEventQueueTrigger();
   }
 }
@@ -818,7 +817,8 @@ function resetImportPastMessages() {
   cleanupRuntimeProperties();
   clearProcessedMessageRecords();
   deleteImportPastMessagesTrigger();
-  Logger.log("過去ログインポートの進捗と処理済み記録をリセットし，トリガーも削除しました");
+  deleteSlackEventQueueTrigger();
+  Logger.log("過去ログインポートの進捗，Slackイベントキュー，処理済み記録をリセットし，トリガーも削除しました");
 }
 
 function isMessageProcessed(key) {
@@ -897,6 +897,7 @@ function cleanupRuntimeProperties() {
       key === "IMPORT_CHANNEL_INDEX" ||
       key === "IMPORT_CURSOR" ||
       key === "IMPORT_ACTIVE" ||
+      key === SLACK_EVENT_QUEUE_PROP ||
       key.startsWith("DONE_") ||
       /^[CGD][A-Z0-9]+:\d+\.\d+$/.test(key); // 旧形式: Cxxxx:171...
 

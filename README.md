@@ -10,6 +10,7 @@ GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript に
 1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
 2. 今後の投稿保存: `createSlackEventQueueTrigger()` を 1 回実行する
 3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
+   - `resetImportPastMessages()` は未処理の Slack イベントキューも削除する
 
 ## 実装済み
 
@@ -65,4 +66,4 @@ Event Subscriptions > Subscribe to bot events:
 - 長いスレッドのページング取得は未対応
 - 既存 Docs の並び順は自動では並べ替えない
 - 処理済み記録は `_slack_processed_messages` シートに保存する
-- 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` を解除する
+- 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` と未処理キューを解除する
