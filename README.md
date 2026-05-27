@@ -7,10 +7,12 @@ GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript に
 
 ## 使い方
 
-1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
-2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときは `resetSlackEventQueue()` を 1 回実行する
-3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
+1. 過去ログ取得: ボタンから `confirmCreateImportPastMessagesTrigger()` を 1 回実行する
+2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときはボタンから `confirmResetSlackEventQueue()` を 1 回実行する
+3. 過去ログをやり直す: ボタンから `confirmResetImportPastMessages()` 実行後、`confirmCreateImportPastMessagesTrigger()` を再実行する
    - `resetImportPastMessages()` は過去ログ取得の進捗と処理済み記録を削除する
+
+スプレッドシートの図形ボタンには，直接実行用の `createImportPastMessagesTrigger()` / `resetSlackEventQueue()` / `resetImportPastMessages()` ではなく，上記の `confirm...` 関数を割り当ててください。押下時に確認ダイアログが出て，OK の場合だけ実処理を呼び出します。
 
 ## 実装済み
 

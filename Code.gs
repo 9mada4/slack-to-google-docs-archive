@@ -1,9 +1,9 @@
 // ===============================================================
 // 初期設定・復旧メモ
 
-// 1. 過去ログ取得: `createImportPastMessagesTrigger()` を 1 回実行する
-// 2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときは `resetSlackEventQueue()` を 1 回実行する
-// 3. 過去ログをやり直す: `resetImportPastMessages()` 実行後、`createImportPastMessagesTrigger()` を再実行する
+// 1. 過去ログ取得: ボタンから `confirmCreateImportPastMessagesTrigger()` を 1 回実行する
+// 2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときはボタンから `confirmResetSlackEventQueue()` を 1 回実行する
+// 3. 過去ログをやり直す: ボタンから `confirmResetImportPastMessages()` 実行後、`confirmCreateImportPastMessagesTrigger()` を再実行する
 // ===============================================================
 // 歯車>スクリプトプロパティに`SLACK_TOKEN`, `DOC_FOLDER_ID`を設定
 
@@ -28,6 +28,42 @@ let processedMessageKeyCache = null;
 
 // https://zenn.dev/gemcook/articles/38beb65aa8371c
 // ===============================================================
+
+function confirmCreateImportPastMessagesTrigger() {
+  confirmAndRun_(
+    "過去ログ取得を開始しますか？",
+    "importPastMessages の5分ごとのトリガーを作成し，初回処理をすぐ実行します。",
+    createImportPastMessagesTrigger
+  );
+}
+
+function confirmResetSlackEventQueue() {
+  confirmAndRun_(
+    "Slackイベントキューをリセットしますか？",
+    "未処理キュー，自動実行用プロパティ，関連キャッシュ，processSlackEventQueue トリガーを削除します。",
+    resetSlackEventQueue
+  );
+}
+
+function confirmResetImportPastMessages() {
+  confirmAndRun_(
+    "過去ログ取得の進捗をリセットしますか？",
+    "IMPORT_ACTIVE，過去ログ取得の進捗，処理済み記録，importPastMessages トリガーを削除します。",
+    resetImportPastMessages
+  );
+}
+
+function confirmAndRun_(title, message, callback) {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(title, message, ui.ButtonSet.OK_CANCEL);
+
+  if (response !== ui.Button.OK) {
+    Logger.log(`${title} キャンセルされました`);
+    return;
+  }
+
+  callback();
+}
 
 
 // 1-1 ===========================================================
