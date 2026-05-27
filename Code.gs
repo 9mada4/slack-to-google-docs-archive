@@ -232,8 +232,6 @@ function doPost(e) {
         throw new Error("Slack event queue lock timeout");
       }
 
-      const props = PropertiesService.getScriptProperties();
-
       const cache = CacheService.getScriptCache();
       const doneKey = getSlackEventDoneCacheKey_(key);
       
@@ -242,7 +240,7 @@ function doPost(e) {
         return ContentService.createTextOutput("ok");
       }
 
-      const queue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
+      const queue = getSlackEventQueue_();
 
       // すでにキュー済みなら重複追加しない
       const alreadyQueued = queue.some(item => item.key === key);
@@ -254,7 +252,7 @@ function doPost(e) {
           threadTs: threadTs
         });
 
-        props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(queue));
+        saveSlackEventQueue_(queue);
 
         // Slack投稿が来たときだけ，後処理トリガーを作成する
         createSlackEventQueueTrigger();
@@ -288,11 +286,11 @@ function processSlackEventQueue() {
       return;
     }
 
-    const queue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
+    const queue = getSlackEventQueue_();
 
     if (!queue.length) {
       deleteSlackEventQueueTrigger();
-      props.deleteProperty(SLACK_EVENT_QUEUE_PROP);
+      saveSlackEventQueue_([]);
       return;
     }
 
@@ -300,7 +298,7 @@ function processSlackEventQueue() {
     targets = queue.slice(0, 5);
     const rest = queue.slice(5);
 
-    props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(rest));
+    saveSlackEventQueue_(rest);
 
   } finally {
     if (lock.hasLock()) {
@@ -367,8 +365,8 @@ function processSlackEventQueue() {
         return;
       }
 
-      const queue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
-      props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(failed.concat(queue)));
+      const queue = getSlackEventQueue_();
+      saveSlackEventQueue_(failed.concat(queue));
 
     } finally {
       if (lock.hasLock()) {
@@ -378,9 +376,8 @@ function processSlackEventQueue() {
   }
 
   // 未処理キューが残っていなければ，毎分トリガーを止める
-  const remainingQueue = JSON.parse(props.getProperty(SLACK_EVENT_QUEUE_PROP) || "[]");
+  const remainingQueue = getSlackEventQueue_();
   if (!remainingQueue.length) {
-    props.deleteProperty(SLACK_EVENT_QUEUE_PROP);
     deleteSlackEventQueueTrigger();
   }
 }
@@ -444,6 +441,17 @@ function getSlackEventQueue_() {
     Logger.log(`SlackイベントキューのJSON解析に失敗しました: ${e}`);
     return [];
   }
+}
+
+function saveSlackEventQueue_(queue) {
+  const props = PropertiesService.getScriptProperties();
+
+  if (!queue.length) {
+    props.deleteProperty(SLACK_EVENT_QUEUE_PROP);
+    return;
+  }
+
+  props.setProperty(SLACK_EVENT_QUEUE_PROP, JSON.stringify(queue));
 }
 
 function getSlackEventDoneCacheKey_(key) {
