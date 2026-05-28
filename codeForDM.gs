@@ -21,9 +21,9 @@ const DOC_FOLDER_ID = PropertiesService.getScriptProperties().getProperty('DOC_F
 if (!DOC_FOLDER_ID) {
   throw new Error("Script Properties に DOC_FOLDER_ID が設定されていません");
 }
-const PROCESSED_MESSAGES_SHEET_NAME = "_slack_dm_processed_messages";
-const SLACK_EVENT_QUEUE_PROP = "SLACK_DM_EVENT_QUEUE";
-const SLACK_EVENT_DONE_CACHE_KEYS_PROP = "SLACK_DM_EVENT_DONE_CACHE_KEYS";
+const PROCESSED_MESSAGES_SHEET_NAME = "_slack_processed_messages";
+const SLACK_EVENT_QUEUE_PROP = "SLACK_EVENT_QUEUE";
+const SLACK_EVENT_DONE_CACHE_KEYS_PROP = "SLACK_EVENT_DONE_CACHE_KEYS";
 const SLACK_EVENT_DONE_CACHE_KEY_LIMIT = 100;
 const SLACK_SELF_USER_ID_CACHE_KEY = "SLACK_SELF_USER_ID";
 let processedMessageKeyCache = null;
@@ -54,7 +54,7 @@ function confirmResetSlackEventQueue() {
 function confirmResetImportPastMessages() {
   confirmAndRun_(
     "チャンネル/DM過去ログ取得の進捗をリセットしますか？",
-    "IMPORT_DM_ACTIVE，チャンネル/DM過去ログ取得の進捗，処理済み記録，importPastMessages トリガーを削除します。",
+    "IMPORT_ACTIVE，チャンネル/DM過去ログ取得の進捗，処理済み記録，importPastMessages トリガーを削除します。",
     resetImportPastMessages
   );
 }
@@ -87,13 +87,13 @@ function importPastMessages() {
     const channels = getBotJoinedChannels();
     if (!channels.length) {
       Logger.log("Bot参加チャンネル / DM / グループDMがありません");
-      props.deleteProperty("IMPORT_DM_ACTIVE");
+      props.deleteProperty("IMPORT_ACTIVE");
       deleteImportPastMessagesTrigger();
       return;
     }
 
-    let channelIndex = Number(props.getProperty("IMPORT_DM_CONVERSATION_INDEX") || 0);
-    let cursor = props.getProperty("IMPORT_DM_CURSOR") || "";
+    let channelIndex = Number(props.getProperty("IMPORT_CHANNEL_INDEX") || 0);
+    let cursor = props.getProperty("IMPORT_CURSOR") || "";
 
     if (channelIndex >= channels.length) {
       Logger.log("Bot参加チャンネル / DM / グループDMの過去ログインポートが完了しました!");
@@ -160,14 +160,14 @@ function importPastMessages() {
     });
 
     if (result.nextCursor) {
-      props.setProperty("IMPORT_DM_CONVERSATION_INDEX", String(channelIndex));
-      props.setProperty("IMPORT_DM_CURSOR", result.nextCursor);
+      props.setProperty("IMPORT_CHANNEL_INDEX", String(channelIndex));
+      props.setProperty("IMPORT_CURSOR", result.nextCursor);
       Logger.log("次回，同じSlack会話の続きを処理します");
       return;
     }
 
-    props.setProperty("IMPORT_DM_CONVERSATION_INDEX", String(channelIndex + 1));
-    props.deleteProperty("IMPORT_DM_CURSOR");
+    props.setProperty("IMPORT_CHANNEL_INDEX", String(channelIndex + 1));
+    props.deleteProperty("IMPORT_CURSOR");
 
     Logger.log("このSlack会話は完了しました。次回，次のSlack会話を処理します");
   } finally {
@@ -178,7 +178,7 @@ function importPastMessages() {
 // 1-2 importPastMessages を5分ごとに自動実行するトリガーを作成
 function createImportPastMessagesTrigger() {
   deleteImportPastMessagesTrigger();
-  PropertiesService.getScriptProperties().setProperty("IMPORT_DM_ACTIVE", "1");
+  PropertiesService.getScriptProperties().setProperty("IMPORT_ACTIVE", "1");
 
   ScriptApp
     .newTrigger("importPastMessages")
@@ -348,7 +348,7 @@ function processSlackEventQueue() {
       return;
     }
 
-    if (props.getProperty("IMPORT_DM_ACTIVE") === "1") {
+    if (props.getProperty("IMPORT_ACTIVE") === "1") {
       Logger.log("processSlackEventQueue: チャンネル/DM用 importPastMessages 実行中のためキュー処理を保留します");
       return;
     }
@@ -1428,6 +1428,9 @@ function cleanupRuntimeProperties() {
 
   keys.forEach(key => {
     const isRuntimeKey =
+      key === "IMPORT_CHANNEL_INDEX" ||
+      key === "IMPORT_CURSOR" ||
+      key === "IMPORT_ACTIVE" ||
       key === "IMPORT_DM_CONVERSATION_INDEX" ||
       key === "IMPORT_DM_CURSOR" ||
       key === "IMPORT_DM_ACTIVE";
@@ -1449,6 +1452,8 @@ function cleanupSlackEventQueueProperties() {
     if (
       key === SLACK_EVENT_QUEUE_PROP ||
       key === SLACK_EVENT_DONE_CACHE_KEYS_PROP ||
+      key === "SLACK_DM_EVENT_QUEUE" ||
+      key === "SLACK_DM_EVENT_DONE_CACHE_KEYS" ||
       key.startsWith("DONE_")
     ) {
       props.deleteProperty(key);
@@ -1520,8 +1525,8 @@ function testGetBotJoinedChannelNames() {
 // TEST-4 doPost 経由で親投稿と返信追記を確認する
 function testDoPostAppendText() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty("IMPORT_DM_ACTIVE") === "1") {
-    throw new Error("IMPORT_DM_ACTIVE=1 のため doPost追記テストを実行できません。チャンネル/DM過去ログ取得の完了後に再実行してください。");
+  if (props.getProperty("IMPORT_ACTIVE") === "1") {
+    throw new Error("IMPORT_ACTIVE=1 のため doPost追記テストを実行できません。チャンネル/DM過去ログ取得の完了後に再実行してください。");
   }
 
   const originalGetThreadMessages = getThreadMessages;
@@ -1715,7 +1720,7 @@ function testLogSlackEventQueueStatus() {
   const props = PropertiesService.getScriptProperties();
   const queue = getSlackEventQueue_();
 
-  Logger.log(`IMPORT_DM_ACTIVE=${props.getProperty("IMPORT_DM_ACTIVE") || "(未設定)"}`);
+  Logger.log(`IMPORT_ACTIVE=${props.getProperty("IMPORT_ACTIVE") || "(未設定)"}`);
   Logger.log(`Slackイベントキュー件数=${queue.length}`);
 
   queue.slice(0, 20).forEach((item, index) => {
