@@ -6,8 +6,6 @@
 // 3. 過去ログをやり直す: ボタンから `confirmResetImportPastMessages()` 実行後、`confirmCreateImportPastMessagesTrigger()` を再実行する
 //    - `resetImportPastMessages()` は過去ログ取得の進捗と処理済み記録を削除する
 // ===============================================================
-// チャンネル / DM / グループDM保存用
-// Code.gs とは別の Apps Script プロジェクトに単独で貼り付けて使う想定
 // 歯車>スクリプトプロパティに`SLACK_TOKEN`, `DOC_FOLDER_ID`を設定
 
 // 1. SlackAPI管理画面>OAuth & Permissions>OAuth Tokens
@@ -25,7 +23,6 @@ const PROCESSED_MESSAGES_SHEET_NAME = "_slack_processed_messages";
 const SLACK_EVENT_QUEUE_PROP = "SLACK_EVENT_QUEUE";
 const SLACK_EVENT_DONE_CACHE_KEYS_PROP = "SLACK_EVENT_DONE_CACHE_KEYS";
 const SLACK_EVENT_DONE_CACHE_KEY_LIMIT = 100;
-const SLACK_SELF_USER_ID_CACHE_KEY = "SLACK_SELF_USER_ID";
 let processedMessageKeyCache = null;
 // ==============================================================
 // 参考
@@ -37,8 +34,8 @@ let processedMessageKeyCache = null;
 // 確認ダイアログを表示
 function confirmCreateImportPastMessagesTrigger() {
   confirmAndRun_(
-    "チャンネル/DM過去ログ取得を開始しますか？",
-    "チャンネル / DM / グループDM用 importPastMessages の5分ごとのトリガーを作成し，初回処理をすぐ実行します。",
+    "過去ログ取得を開始しますか？",
+    "importPastMessages の5分ごとのトリガーを作成し，初回処理をすぐ実行します。",
     createImportPastMessagesTrigger
   );
 }
@@ -53,8 +50,8 @@ function confirmResetSlackEventQueue() {
 
 function confirmResetImportPastMessages() {
   confirmAndRun_(
-    "チャンネル/DM過去ログ取得の進捗をリセットしますか？",
-    "IMPORT_ACTIVE，チャンネル/DM過去ログ取得の進捗，処理済み記録，importPastMessages トリガーを削除します。",
+    "過去ログ取得の進捗をリセットしますか？",
+    "IMPORT_ACTIVE，過去ログ取得の進捗，処理済み記録，importPastMessages トリガーを削除します。",
     resetImportPastMessages
   );
 }
@@ -86,7 +83,7 @@ function importPastMessages() {
 
     const channels = getBotJoinedChannels();
     if (!channels.length) {
-      Logger.log("Bot参加チャンネル / DM / グループDMがありません");
+      Logger.log("Bot参加チャンネルがありません");
       props.deleteProperty("IMPORT_ACTIVE");
       deleteImportPastMessagesTrigger();
       return;
@@ -96,7 +93,7 @@ function importPastMessages() {
     let cursor = props.getProperty("IMPORT_CURSOR") || "";
 
     if (channelIndex >= channels.length) {
-      Logger.log("Bot参加チャンネル / DM / グループDMの過去ログインポートが完了しました!");
+      Logger.log("Bot参加チャンネルの過去ログインポートが完了しました!");
       cleanupRuntimeProperties();
       deleteImportPastMessagesTrigger();
       return;
@@ -106,7 +103,7 @@ function importPastMessages() {
     const channelId = channel.id;
     const channelName = channel.name || channelId;
 
-    Logger.log(`Slack会話処理中: ${channelName} (${channelId})`);
+    Logger.log(`チャンネル処理中: ${channelName} (${channelId})`);
 
     const result = getAllChannelMessages(channelId, cursor);
     const messages = result.messages;
@@ -162,14 +159,14 @@ function importPastMessages() {
     if (result.nextCursor) {
       props.setProperty("IMPORT_CHANNEL_INDEX", String(channelIndex));
       props.setProperty("IMPORT_CURSOR", result.nextCursor);
-      Logger.log("次回，同じSlack会話の続きを処理します");
+      Logger.log("次回，同じチャンネルの続きを処理します");
       return;
     }
 
     props.setProperty("IMPORT_CHANNEL_INDEX", String(channelIndex + 1));
     props.deleteProperty("IMPORT_CURSOR");
 
-    Logger.log("このSlack会話は完了しました。次回，次のSlack会話を処理します");
+    Logger.log("このチャンネルは完了しました。次回，次のチャンネルを処理します");
   } finally {
     lock.releaseLock();
   }
@@ -186,7 +183,7 @@ function createImportPastMessagesTrigger() {
     .everyMinutes(5)
     .create();
 
-  Logger.log("チャンネル/DM用 importPastMessages を5分ごとに実行するトリガーを作成しました");
+  Logger.log("importPastMessages を5分ごとに実行するトリガーを作成しました");
 
   // 初回だけ待たずに実行する
   importPastMessages();
@@ -244,13 +241,6 @@ function doPost(e) {
       return ContentService.createTextOutput("ok");
     }
 
-    if (!isSupportedConversationEvent_(event)) {
-      Logger.log(
-        `doPost: チャンネル / DM / グループDM以外のmessageイベントのため終了します / channelId=${channelId} / channelType=${event.channel_type || "(none)"}`
-      );
-      return ContentService.createTextOutput("ok");
-    }
-
     const key = `${channelId}:${ts}`;
 
     const lock = LockService.getScriptLock();
@@ -284,8 +274,7 @@ function doPost(e) {
           key: key,
           channelId: channelId,
           ts: ts,
-          threadTs: threadTs,
-          channelType: event.channel_type || ""
+          threadTs: threadTs
         });
 
         saveSlackEventQueue_(queue);
@@ -313,27 +302,6 @@ function doPost(e) {
   return ContentService.createTextOutput("ok");
 }
 
-function isSupportedConversationEvent_(event) {
-  const channelType = event.channel_type || "";
-
-  if (
-    channelType === "channel" ||
-    channelType === "group" ||
-    channelType === "im" ||
-    channelType === "mpim"
-  ) {
-    return true;
-  }
-
-  if (channelType) {
-    return false;
-  }
-
-  const channelId = event.channel || "";
-
-  return /^[CDG]/.test(channelId);
-}
-
 // 2-1 doPostで積んだSlackイベントを後処理する
 function processSlackEventQueue() {
   const props = PropertiesService.getScriptProperties();
@@ -349,7 +317,7 @@ function processSlackEventQueue() {
     }
 
     if (props.getProperty("IMPORT_ACTIVE") === "1") {
-      Logger.log("processSlackEventQueue: チャンネル/DM用 importPastMessages 実行中のためキュー処理を保留します");
+      Logger.log("processSlackEventQueue: importPastMessages 実行中のためキュー処理を保留します");
       return;
     }
 
@@ -411,7 +379,7 @@ function processSlackEventQueue() {
       Logger.log(`processSlackEventQueue: 対象メッセージ検出 / ${formatSlackMessageForLog_(msg)}`);
 
       const channel = getChannelInfo(item.channelId);
-      Logger.log(`processSlackEventQueue: Slack会話情報 / id=${channel.id} / name=${channel.name} / type=${channel.type || "(none)"}`);
+      Logger.log(`processSlackEventQueue: チャンネル情報 / id=${channel.id} / name=${channel.name}`);
 
       const isReply = msg.thread_ts && msg.thread_ts !== msg.ts;
       Logger.log(`processSlackEventQueue: 書き込み判定 / key=${item.key} / isReply=${Boolean(isReply)}`);
@@ -481,7 +449,6 @@ function formatSlackEventQueueItemForLog_(item) {
   return [
     `key=${item.key || "(none)"}`,
     `channelId=${item.channelId || "(none)"}`,
-    `channelType=${item.channelType || "(none)"}`,
     `ts=${item.ts || "(none)"}`,
     `threadTs=${item.threadTs || "(none)"}`
   ].join(" / ");
@@ -493,7 +460,6 @@ function formatSlackMessageForLog_(msg) {
   return [
     `type=${msg.type || "(none)"}`,
     `channel=${msg.channel || "(none)"}`,
-    `channelType=${msg.channel_type || "(none)"}`,
     `user=${msg.user || "(none)"}`,
     `ts=${msg.ts || "(none)"}`,
     `threadTs=${msg.thread_ts || "(none)"}`,
@@ -997,15 +963,10 @@ function getUserName(userId) {
 function getOrCreateDocForYear(year, channel) {
   const channelId = channel && channel.id ? channel.id : "unknown";
   const channelName = channel && channel.name ? channel.name : channelId;
-  const isDMConversation = channel && (channel.is_im || channel.is_mpim || channel.type === "im" || channel.type === "mpim");
-  const conversationKind = channel && channel.is_mpim ? "GroupDM" : "DM";
-  const conversationLabel = channel && channel.is_mpim ? "グループDM" : "DM";
 
   const safeChannelName = String(channelName).replace(/[\\/:*?"<>|#]/g, "_");
-  const channelFolderName = isDMConversation
-    ? `${conversationKind}_${safeChannelName}_${channelId}`
-    : `${safeChannelName}_${channelId}`;
-  Logger.log(`getOrCreateDocForYear: 開始 / year=${year} / conversationFolder=${channelFolderName}`);
+  const channelFolderName = `${safeChannelName}_${channelId}`;
+  Logger.log(`getOrCreateDocForYear: 開始 / year=${year} / channelFolder=${channelFolderName}`);
 
   const rootFolder = DriveApp.getFolderById(DOC_FOLDER_ID);
   const channelFolders = rootFolder.getFoldersByName(channelFolderName);
@@ -1013,7 +974,7 @@ function getOrCreateDocForYear(year, channel) {
   const channelFolder = channelFolders.hasNext()
     ? channelFolders.next()
     : rootFolder.createFolder(channelFolderName);
-  Logger.log(`getOrCreateDocForYear: Slack会話フォルダ取得 / name=${channelFolderName} / id=${channelFolder.getId()}`);
+  Logger.log(`getOrCreateDocForYear: チャンネルフォルダ取得 / name=${channelFolderName} / id=${channelFolder.getId()}`);
 
   const fileName = `Slack_Log_${year}`;
   const files = channelFolder.getFilesByName(fileName);
@@ -1028,12 +989,8 @@ function getOrCreateDocForYear(year, channel) {
   DriveApp.getFileById(doc.getId()).moveTo(channelFolder);
   Logger.log(`getOrCreateDocForYear: 新規Docを作成しました / fileName=${fileName} / docId=${doc.getId()}`);
 
-  const headingText = isDMConversation
-    ? `${year}年_Slack DM記録ドキュメント ${conversationLabel}: ${channelName}`
-    : `${year}年_Slack記録ドキュメント #${channelName}`;
-
   doc.getBody()
-    .appendParagraph(headingText)
+    .appendParagraph(`${year}年_Slack記録ドキュメント #${channelName}`)
     .setHeading(DocumentApp.ParagraphHeading.HEADING1);
 
   return doc;
@@ -1048,7 +1005,7 @@ function getBotJoinedChannels() {
 
   do {
     const params = [
-      "types=public_channel,private_channel,im,mpim",
+      "types=public_channel,private_channel",
       "exclude_archived=true",
       "limit=200"
     ];
@@ -1065,11 +1022,11 @@ function getBotJoinedChannels() {
     const json = JSON.parse(res.getContentText());
 
     if (!json.ok) {
-      Logger.log("Bot参加チャンネル / DM / グループDM一覧の取得に失敗しました: " + json.error);
+      Logger.log("Bot参加チャンネル一覧の取得に失敗しました: " + json.error);
       break;
     }
 
-    channels.push(...json.channels.map(normalizeConversationInfo_));
+    channels.push(...json.channels);
 
     cursor = json.response_metadata && json.response_metadata.next_cursor
       ? json.response_metadata.next_cursor
@@ -1082,7 +1039,7 @@ function getBotJoinedChannels() {
   return channels;
 }
 
-// 10 Slack会話の過去ログを取得 ===========================================
+// 10 チャンネルの過去ログを取得 ==========================================
 // =======================================================================
 
 function getAllChannelMessages(channelId, cursor) {
@@ -1103,7 +1060,7 @@ function getAllChannelMessages(channelId, cursor) {
   const json = JSON.parse(res.getContentText());
 
   if (!json.ok) {
-    Logger.log("Slack過去ログの取得に失敗しました: " + json.error);
+    Logger.log("過去ログの取得に失敗しました: " + json.error);
     return {
       messages: [],
       nextCursor: ""
@@ -1122,22 +1079,19 @@ function getAllChannelMessages(channelId, cursor) {
   };
 }
 
-// 11 Slack会話情報を取得 =================================================
+// 11 チャンネル情報を取得 ================================================
 // =======================================================================
 
 function getChannelInfo(channelId) {
   if (!channelId) {
     return {
       id: "unknown",
-      name: "unknown",
-      type: "unknown",
-      is_im: false,
-      is_mpim: false
+      name: "unknown"
     };
   }
 
   const cache = CacheService.getScriptCache();
-  const cacheKey = getConversationInfoCacheKey_(channelId);
+  const cacheKey = `channel:${channelId}`;
   const cached = cache.get(cacheKey);
 
   if (cached) {
@@ -1155,185 +1109,23 @@ function getChannelInfo(channelId) {
     const json = JSON.parse(res.getContentText());
 
     if (json.ok && json.channel) {
-      const channel = normalizeConversationInfo_(json.channel);
+      const channel = {
+        id: json.channel.id,
+        name: json.channel.name || json.channel.name_normalized || json.channel.id
+      };
 
       cache.put(cacheKey, JSON.stringify(channel), 21600); // 6時間
       return channel;
     }
 
   } catch (e) {
-    Logger.log(`Slack会話情報の取得に失敗しました: ${channelId} / ${e}`);
+    Logger.log(`チャンネル情報の取得に失敗しました: ${channelId} / ${e}`);
   }
 
   return {
     id: channelId,
-    name: channelId,
-    type: getFallbackConversationType_(channelId),
-    is_im: channelId.startsWith("D"),
-    is_mpim: false
+    name: channelId
   };
-}
-
-function getConversationInfoCacheKey_(channelId) {
-  return `conversation:${channelId}`;
-}
-
-function normalizeConversationInfo_(conversation) {
-  return isDirectMessageConversation_(conversation)
-    ? normalizeDMConversationInfo_(conversation)
-    : normalizeNonDMConversationInfo_(conversation);
-}
-
-function getFallbackConversationType_(channelId) {
-  if (channelId.startsWith("C")) return "public_channel";
-  if (channelId.startsWith("G")) return "private_channel";
-  if (channelId.startsWith("D")) return "im";
-  return "unknown";
-}
-
-function isDirectMessageConversation_(conversation) {
-  if (!conversation) return false;
-
-  if (conversation.is_im || conversation.is_mpim) {
-    return true;
-  }
-
-  if (conversation.type === "im" || conversation.type === "mpim") {
-    return true;
-  }
-
-  return String(conversation.id || "").startsWith("D");
-}
-
-function normalizeDMConversationInfo_(conversation) {
-  const isMpim = Boolean(conversation.is_mpim || conversation.type === "mpim");
-  const isIm = Boolean(conversation.is_im || conversation.type === "im" || String(conversation.id || "").startsWith("D"));
-
-  return {
-    id: conversation.id || "unknown",
-    name: getDMConversationDisplayName_(conversation),
-    type: isMpim ? "mpim" : "im",
-    is_im: isIm && !isMpim,
-    is_mpim: isMpim
-  };
-}
-
-function normalizeNonDMConversationInfo_(conversation) {
-  let type = "unknown";
-
-  if (conversation.is_channel) {
-    type = "public_channel";
-  } else if (conversation.is_group) {
-    type = "private_channel";
-  }
-
-  return {
-    id: conversation.id || "unknown",
-    name: conversation.name || conversation.name_normalized || conversation.id || "unknown",
-    type: type,
-    is_im: false,
-    is_mpim: false
-  };
-}
-
-function getDMConversationDisplayName_(conversation) {
-  const channelId = conversation.id || "unknown";
-
-  if (conversation.is_im || conversation.type === "im" || channelId.startsWith("D")) {
-    if (conversation.user) {
-      return getUserName(conversation.user);
-    }
-
-    return conversation.name || conversation.name_normalized || channelId;
-  }
-
-  if (conversation.is_mpim || conversation.type === "mpim") {
-    const selfUserId = getSlackSelfUserId();
-    const memberNames = getConversationMemberUserIds(channelId)
-      .filter(userId => userId && userId !== selfUserId)
-      .map(getUserName)
-      .filter(Boolean);
-
-    if (memberNames.length) {
-      return memberNames.join("_");
-    }
-
-    return conversation.name || conversation.name_normalized || channelId;
-  }
-
-  return conversation.name || conversation.name_normalized || channelId;
-}
-
-function getConversationMemberUserIds(channelId) {
-  const members = [];
-  let cursor = "";
-
-  do {
-    const params = [
-      `channel=${encodeURIComponent(channelId)}`,
-      "limit=200"
-    ];
-
-    if (cursor) {
-      params.push(`cursor=${encodeURIComponent(cursor)}`);
-    }
-
-    try {
-      const url = `https://slack.com/api/conversations.members?${params.join("&")}`;
-      const res = UrlFetchApp.fetch(url, {
-        "headers": { "Authorization": "Bearer " + SLACK_TOKEN }
-      });
-      const json = JSON.parse(res.getContentText());
-
-      if (!json.ok) {
-        Logger.log(`DM会話メンバー一覧の取得に失敗しました: ${channelId} / ${json.error}`);
-        break;
-      }
-
-      members.push(...json.members);
-
-      cursor = json.response_metadata && json.response_metadata.next_cursor
-        ? json.response_metadata.next_cursor
-        : "";
-
-      if (cursor) {
-        Utilities.sleep(1200);
-      }
-    } catch (e) {
-      Logger.log(`DM会話メンバー一覧の取得に失敗しました: ${channelId} / ${e}`);
-      break;
-    }
-  } while (cursor);
-
-  return members;
-}
-
-function getSlackSelfUserId() {
-  const cache = CacheService.getScriptCache();
-  const cached = cache.get(SLACK_SELF_USER_ID_CACHE_KEY);
-
-  if (cached) {
-    return cached;
-  }
-
-  try {
-    const url = "https://slack.com/api/auth.test";
-    const res = UrlFetchApp.fetch(url, {
-      "headers": { "Authorization": "Bearer " + SLACK_TOKEN }
-    });
-    const json = JSON.parse(res.getContentText());
-
-    if (json.ok && json.user_id) {
-      cache.put(SLACK_SELF_USER_ID_CACHE_KEY, json.user_id, 21600);
-      return json.user_id;
-    }
-
-    Logger.log(`Slack自己ユーザーIDの取得に失敗しました: ${json.error || "unknown error"}`);
-  } catch (e) {
-    Logger.log(`Slack自己ユーザーIDの取得に失敗しました: ${e}`);
-  }
-
-  return "";
 }
 
 // 12 処理済みメッセージ・過去ログリセット管理 ============================
@@ -1345,7 +1137,7 @@ function resetImportPastMessages() {
   clearProcessedMessageRecords();
   deleteImportPastMessagesTrigger();
   cleanupLegacyProcessedMessageProperties();
-  Logger.log("チャンネル/DM過去ログインポートの進捗と処理済み記録をリセットし，importPastMessages トリガーを削除しました");
+  Logger.log("過去ログインポートの進捗と処理済み記録をリセットし，importPastMessages トリガーを削除しました");
 }
 
 // 12-2 メッセージが処理済みか確認
@@ -1430,17 +1222,14 @@ function cleanupRuntimeProperties() {
     const isRuntimeKey =
       key === "IMPORT_CHANNEL_INDEX" ||
       key === "IMPORT_CURSOR" ||
-      key === "IMPORT_ACTIVE" ||
-      key === "IMPORT_DM_CONVERSATION_INDEX" ||
-      key === "IMPORT_DM_CURSOR" ||
-      key === "IMPORT_DM_ACTIVE";
+      key === "IMPORT_ACTIVE";
 
     if (isRuntimeKey) {
       props.deleteProperty(key);
     }
   });
 
-  Logger.log("チャンネル/DM過去ログ取得用の一時プロパティを削除しました。SLACK_TOKEN と DOC_FOLDER_ID は残しています");
+  Logger.log("過去ログ取得用の一時プロパティを削除しました。SLACK_TOKEN と DOC_FOLDER_ID は残しています");
 }
 
 // 13-2 Slackイベントキュー用の一時スクリプトプロパティを削除
@@ -1452,8 +1241,6 @@ function cleanupSlackEventQueueProperties() {
     if (
       key === SLACK_EVENT_QUEUE_PROP ||
       key === SLACK_EVENT_DONE_CACHE_KEYS_PROP ||
-      key === "SLACK_DM_EVENT_QUEUE" ||
-      key === "SLACK_DM_EVENT_DONE_CACHE_KEYS" ||
       key.startsWith("DONE_")
     ) {
       props.deleteProperty(key);
@@ -1498,24 +1285,24 @@ function testTriggerTarget() {
   Logger.log("test trigger fired");
 }
 
-// TEST-3 Bot参加チャンネル / DM / グループDMのIDと会話名を確認する
+// TEST-3 Bot参加チャンネルのIDとチャンネル名を確認する
 function testGetBotJoinedChannelNames() {
   const channels = getBotJoinedChannels();
 
   if (!channels.length) {
-    Logger.log("Bot参加チャンネル / DM / グループDMがありません");
+    Logger.log("Bot参加チャンネルがありません");
     return;
   }
 
   channels.forEach(channel => {
     Logger.log(
-      `getBotJoinedChannels: id=${channel.id}, name=${channel.name}, type=${channel.type}`
+      `getBotJoinedChannels: id=${channel.id}, name=${channel.name}, name_normalized=${channel.name_normalized}`
     );
 
     const info = getChannelInfo(channel.id);
 
     Logger.log(
-      `getChannelInfo:        id=${info.id}, name=${info.name}, type=${info.type}`
+      `getChannelInfo:        id=${info.id}, name=${info.name}`
     );
 
     Logger.log("------------------------------");
@@ -1526,18 +1313,15 @@ function testGetBotJoinedChannelNames() {
 function testDoPostAppendText() {
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty("IMPORT_ACTIVE") === "1") {
-    throw new Error("IMPORT_ACTIVE=1 のため doPost追記テストを実行できません。チャンネル/DM過去ログ取得の完了後に再実行してください。");
+    throw new Error("IMPORT_ACTIVE=1 のため doPost追記テストを実行できません。過去ログ取得の完了後に再実行してください。");
   }
 
   const originalGetThreadMessages = getThreadMessages;
   const originalQueue = getSlackEventQueue_();
   const originalDoneCacheKeys = props.getProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
   const channel = {
-    id: "D_DOPOST_APPEND_TEST",
-    name: "doPost追記テスト",
-    type: "im",
-    is_im: true,
-    is_mpim: false
+    id: "C_DOPOST_APPEND_TEST",
+    name: "doPost追記テスト"
   };
   const user = {
     id: "U_DOPOST_APPEND_TEST",
@@ -1550,7 +1334,6 @@ function testDoPostAppendText() {
   const parentMsg = {
     type: "message",
     channel: channel.id,
-    channel_type: "im",
     user: user.id,
     text: `[doPost追記テスト 親] ${label}`,
     ts: parentTs
@@ -1558,7 +1341,6 @@ function testDoPostAppendText() {
   const replyMsg = {
     type: "message",
     channel: channel.id,
-    channel_type: "im",
     user: user.id,
     text: `[doPost追記テスト 返信] ${label}`,
     ts: replyTs,
@@ -1567,7 +1349,7 @@ function testDoPostAppendText() {
 
   try {
     const cache = CacheService.getScriptCache();
-    cache.put(getConversationInfoCacheKey_(channel.id), JSON.stringify(channel), 21600);
+    cache.put(`channel:${channel.id}`, JSON.stringify(channel), 21600);
     cache.put(user.id, user.name, 21600);
 
     Logger.log(`doPost追記テスト: 既存Slackイベントキュー ${originalQueue.length} 件を一時退避します`);
@@ -1592,7 +1374,7 @@ function testDoPostAppendText() {
     processSlackEventQueue();
 
     const year = Utilities.formatDate(now, "JST", "yyyy");
-    Logger.log(`doPost追記テスト完了: ${channel.name} / Slack_Log_${year} を確認してください`);
+    Logger.log(`doPost追記テスト完了: #${channel.name} / Slack_Log_${year} を確認してください`);
   } finally {
     getThreadMessages = originalGetThreadMessages;
     cleanupTestDoPostQueue_(channel.id, [parentTs, replyTs]);
@@ -1610,7 +1392,7 @@ function testDoPostAppendText() {
       deleteSlackEventQueueTrigger();
     }
 
-    CacheService.getScriptCache().removeAll([getConversationInfoCacheKey_(channel.id), user.id]);
+    CacheService.getScriptCache().removeAll([`channel:${channel.id}`, user.id]);
     Logger.log(`doPost追記テスト: 既存Slackイベントキュー ${originalQueue.length} 件を復元しました`);
   }
 }
@@ -1622,8 +1404,7 @@ function testDoPostEnqueueOnly() {
   const originalDoneCacheKeys = props.getProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
   const msg = {
     type: "message",
-    channel: "D_DOPOST_QUEUE_TEST",
-    channel_type: "im",
+    channel: "C_DOPOST_QUEUE_TEST",
     user: "U_DOPOST_QUEUE_TEST",
     text: "doPostキュー投入テスト",
     ts: createTestSlackTimestamp_(new Date().getTime())
@@ -1667,7 +1448,6 @@ function buildTestDoPostRequest_(msg) {
   const event = {
     type: "message",
     channel: msg.channel,
-    channel_type: msg.channel_type || "im",
     user: msg.user,
     text: msg.text,
     ts: msg.ts
@@ -1729,7 +1509,6 @@ function testLogSlackEventQueueStatus() {
         `#${index + 1}`,
         `key=${item.key}`,
         `channelId=${item.channelId}`,
-        `channelType=${item.channelType || "(none)"}`,
         `ts=${item.ts}`,
         `threadTs=${item.threadTs}`
       ].join(" / ")
