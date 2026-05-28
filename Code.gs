@@ -210,8 +210,10 @@ function deleteImportPastMessagesTrigger() {
 
 function doPost(e) {
   const params = JSON.parse(e.postData.contents);
+  Logger.log(`doPost: request received / type=${params.type || "(none)"}`);
 
   if (params.type === 'url_verification') {
+    Logger.log("doPost: url_verification challenge を返します");
     return ContentService
       .createTextOutput(params.challenge)
       .setMimeType(ContentService.MimeType.TEXT);
@@ -219,8 +221,13 @@ function doPost(e) {
 
   const event = params.event;
   if (!event) {
+    Logger.log("doPost: event がないため終了します");
     return ContentService.createTextOutput("ok");
   }
+
+  Logger.log(
+    `doPost: event=${formatSlackMessageForLog_(event)} / subtype=${event.subtype || "(none)"}`
+  );
 
   // メッセージの新規投稿のみ処理対象
   if (event.type === 'message' && !event.subtype) {
@@ -229,6 +236,7 @@ function doPost(e) {
     const threadTs = event.thread_ts || event.ts;
 
     if (!ts) {
+      Logger.log(`doPost: ts がないため終了します / channelId=${channelId}`);
       return ContentService.createTextOutput("ok");
     }
 
@@ -242,12 +250,16 @@ function doPost(e) {
       }
 
       const queue = getSlackEventQueue_();
+      Logger.log(`doPost: lock取得 / key=${key} / 現在のキュー件数=${queue.length}`);
       const cache = CacheService.getScriptCache();
       const doneKey = getSlackEventDoneCacheKey_(key);
 
       // 直近で処理済みでも，未処理キューが残っていれば後処理トリガーだけ復旧する
       if (cache.get(doneKey)) {
+        Logger.log(`doPost: 直近処理済みキャッシュによりキュー追加をスキップ / key=${key} / キュー件数=${queue.length}`);
+
         if (queue.length) {
+          Logger.log(`doPost: 未処理キューが残っているためトリガー復旧を試行 / キュー件数=${queue.length}`);
           createSlackEventQueueTrigger();
         }
 
@@ -265,18 +277,25 @@ function doPost(e) {
         });
 
         saveSlackEventQueue_(queue);
+        Logger.log(`doPost: キューへ追加しました / key=${key} / threadTs=${threadTs} / キュー件数=${queue.length}`);
+      } else {
+        Logger.log(`doPost: すでにキュー済みのため追加しません / key=${key} / キュー件数=${queue.length}`);
       }
 
       // キューが残っている限り，後処理トリガーが消えていても復旧する
       if (queue.length) {
+        Logger.log(`doPost: 後処理トリガー確認 / キュー件数=${queue.length}`);
         createSlackEventQueueTrigger();
       }
 
     } finally {
       if (lock.hasLock()) {
         lock.releaseLock();
+        Logger.log(`doPost: lock解放 / key=${key}`);
       }
     }
+  } else {
+    Logger.log(`doPost: 処理対象外イベントのため終了します / type=${event.type || "(none)"} / subtype=${event.subtype || "(none)"}`);
   }
 
   return ContentService.createTextOutput("ok");
@@ -288,6 +307,7 @@ function processSlackEventQueue() {
   const lock = LockService.getScriptLock();
 
   let targets = [];
+  Logger.log("processSlackEventQueue: 開始");
 
   try {
     if (!lock.tryLock(1000)) {
@@ -301,8 +321,10 @@ function processSlackEventQueue() {
     }
 
     const queue = getSlackEventQueue_();
+    Logger.log(`processSlackEventQueue: キュー取得 / 件数=${queue.length}`);
 
     if (!queue.length) {
+      Logger.log("processSlackEventQueue: キューが空のためトリガーを削除して終了します");
       deleteSlackEventQueueTrigger();
       saveSlackEventQueue_([]);
       return;
@@ -313,10 +335,12 @@ function processSlackEventQueue() {
     const rest = queue.slice(5);
 
     saveSlackEventQueue_(rest);
+    Logger.log(`processSlackEventQueue: 処理対象=${targets.length}件 / 残り=${rest.length}件`);
 
   } finally {
     if (lock.hasLock()) {
       lock.releaseLock();
+      Logger.log("processSlackEventQueue: lock解放");
     }
   }
 
@@ -324,47 +348,65 @@ function processSlackEventQueue() {
 
   targets.forEach(item => {
     try {
+      Logger.log(`processSlackEventQueue: item処理開始 / ${formatSlackEventQueueItemForLog_(item)}`);
       const cache = CacheService.getScriptCache();
       const doneKey = getSlackEventDoneCacheKey_(item.key);
 
       // 直近で処理済みならスキップ
-      if (isMessageProcessed(item.key) || cache.get(doneKey)) {
+      if (isMessageProcessed(item.key)) {
+        Logger.log(`processSlackEventQueue: 処理済みシートによりスキップ / key=${item.key}`);
+        return;
+      }
+
+      if (cache.get(doneKey)) {
+        Logger.log(`processSlackEventQueue: 直近処理済みキャッシュによりスキップ / key=${item.key}`);
         return;
       }
 
       // Slackから該当メッセージを取り直す
+      Logger.log(`processSlackEventQueue: Slack replies 取得開始 / channelId=${item.channelId} / threadTs=${item.threadTs}`);
       const threadMessages = getThreadMessages(item.channelId, item.threadTs);
       if (!threadMessages) {
         throw new Error("threadMessages is null");
       }
+      Logger.log(`processSlackEventQueue: Slack replies 取得完了 / key=${item.key} / 件数=${threadMessages.length}`);
 
       const msg = threadMessages.find(m => m.ts === item.ts);
       if (!msg) {
         throw new Error(`message not found: ${item.key}`);
       }
+      Logger.log(`processSlackEventQueue: 対象メッセージ検出 / ${formatSlackMessageForLog_(msg)}`);
 
       const channel = getChannelInfo(item.channelId);
+      Logger.log(`processSlackEventQueue: チャンネル情報 / id=${channel.id} / name=${channel.name}`);
 
       const isReply = msg.thread_ts && msg.thread_ts !== msg.ts;
+      Logger.log(`processSlackEventQueue: 書き込み判定 / key=${item.key} / isReply=${Boolean(isReply)}`);
 
       if (isReply) {
         const appended = appendReplyToExistingThread(msg, channel, threadMessages[0]);
+        Logger.log(`processSlackEventQueue: 既存スレッド追記結果 / key=${item.key} / appended=${appended}`);
 
         if (!appended) {
+          Logger.log(`processSlackEventQueue: 親位置が見つからないためスレッド全体を書き込み / key=${item.key} / 件数=${threadMessages.length}`);
           threadMessages.forEach(tMsg => {
             writeMessageToDoc(tMsg, channel);
             markMessageProcessed(`${item.channelId}:${tMsg.ts}`);
+            Logger.log(`processSlackEventQueue: スレッド全体書き込み済み / key=${item.channelId}:${tMsg.ts}`);
           });
         } else {
           markMessageProcessed(item.key);
+          Logger.log(`processSlackEventQueue: 返信追記済みとして記録 / key=${item.key}`);
         }
       } else {
         writeMessageToDoc(msg, channel);
         markMessageProcessed(item.key);
+        Logger.log(`processSlackEventQueue: 新規投稿を書き込み済みとして記録 / key=${item.key}`);
       }
 
       cache.put(doneKey, "done", 21600); // 6時間だけ重複防止
       rememberSlackEventDoneCacheKey_(doneKey);
+      Logger.log(`processSlackEventQueue: item処理完了 / key=${item.key}`);
     } catch (e) {
       Logger.log(`Slackイベント処理失敗: ${item.key} / ${e}`);
       failed.push(item);
@@ -381,19 +423,57 @@ function processSlackEventQueue() {
 
       const queue = getSlackEventQueue_();
       saveSlackEventQueue_(failed.concat(queue));
+      Logger.log(`processSlackEventQueue: 失敗分をキューへ戻しました / 失敗=${failed.length}件 / キュー件数=${failed.length + queue.length}`);
 
     } finally {
       if (lock.hasLock()) {
         lock.releaseLock();
+        Logger.log("processSlackEventQueue: 失敗キュー戻しlock解放");
       }
     }
   }
 
   // 未処理キューが残っていなければ，毎分トリガーを止める
   const remainingQueue = getSlackEventQueue_();
+  Logger.log(`processSlackEventQueue: 終了前キュー確認 / 残り=${remainingQueue.length}件`);
   if (!remainingQueue.length) {
     deleteSlackEventQueueTrigger();
   }
+  Logger.log("processSlackEventQueue: 終了");
+}
+
+function formatSlackEventQueueItemForLog_(item) {
+  if (!item) return "(empty item)";
+
+  return [
+    `key=${item.key || "(none)"}`,
+    `channelId=${item.channelId || "(none)"}`,
+    `ts=${item.ts || "(none)"}`,
+    `threadTs=${item.threadTs || "(none)"}`
+  ].join(" / ");
+}
+
+function formatSlackMessageForLog_(msg) {
+  if (!msg) return "(empty message)";
+
+  return [
+    `type=${msg.type || "(none)"}`,
+    `channel=${msg.channel || "(none)"}`,
+    `user=${msg.user || "(none)"}`,
+    `ts=${msg.ts || "(none)"}`,
+    `threadTs=${msg.thread_ts || "(none)"}`,
+    `text=${truncateForLog_(msg.text || "", 120)}`
+  ].join(" / ");
+}
+
+function truncateForLog_(value, maxLength) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+
+  if (text.length <= maxLength) {
+    return text || "(empty)";
+  }
+
+  return `${text.slice(0, maxLength)}...`;
 }
 
 // 2-2 processSlackEventQueue を1分ごとに実行するトリガーを作成
@@ -536,12 +616,19 @@ function appendReplyToExistingThread(msg, channel, parentMsg) {
   const channelId = channel && channel.id ? channel.id : msg.channel || "unknown";
   const threadTs = msg.thread_ts || msg.ts;
   const year = Utilities.formatDate(new Date(parseFloat(threadTs) * 1000), "JST", "yyyy");
+  Logger.log(
+    `appendReplyToExistingThread: 開始 / channelId=${channelId} / threadTs=${threadTs} / year=${year} / msgTs=${msg.ts}`
+  );
+
   const doc = getOrCreateDocForYear(year, channel || {
     id: channelId,
     name: channelId
   });
   const body = doc.getBody();
   let parentIndex = findParagraphIndex(body, getThreadMarker(channelId, threadTs));
+  Logger.log(
+    `appendReplyToExistingThread: marker検索 / marker=${getThreadMarker(channelId, threadTs)} / parentIndex=${parentIndex}`
+  );
 
   if (parentIndex === -1 && parentMsg) {
     const parentName = getUserName(parentMsg.user);
@@ -552,16 +639,28 @@ function appendReplyToExistingThread(msg, channel, parentMsg) {
     );
 
     parentIndex = findParagraphIndex(body, `${parentName} (${parentTime})`);
+    Logger.log(
+      `appendReplyToExistingThread: 親見出し検索 / text=${parentName} (${parentTime}) / parentIndex=${parentIndex}`
+    );
   }
 
   if (parentIndex === -1) {
+    Logger.log(`appendReplyToExistingThread: 親位置が見つからないため追記不可 / channelId=${channelId} / threadTs=${threadTs}`);
     return false;
   }
 
+  const insertIndex = getThreadInsertIndex(body, parentIndex);
+  Logger.log(
+    `appendReplyToExistingThread: 挿入位置決定 / parentIndex=${parentIndex} / insertIndex=${insertIndex}`
+  );
+
   const result = writeMessageToDoc(msg, channel, {
-    insertIndex: getThreadInsertIndex(body, parentIndex)
+    insertIndex: insertIndex
   });
 
+  Logger.log(
+    `appendReplyToExistingThread: 完了 / channelId=${channelId} / threadTs=${threadTs} / msgTs=${msg.ts} / result=${Boolean(result)}`
+  );
   return Boolean(result);
 }
 
@@ -570,6 +669,12 @@ function appendReplyToExistingThread(msg, channel, parentMsg) {
 function writeMessageToDoc(msg, channel, options) {
   const threadTs = msg.thread_ts ? parseFloat(msg.thread_ts) : parseFloat(msg.ts);
   const year = Utilities.formatDate(new Date(threadTs * 1000), "JST", "yyyy");
+  const channelIdForLog = channel && channel.id ? channel.id : msg.channel || "unknown";
+  const isReplyForLog = msg.thread_ts && msg.thread_ts !== msg.ts;
+  Logger.log(
+    `writeMessageToDoc: 開始 / channelId=${channelIdForLog} / year=${year} / ts=${msg.ts} / threadTs=${msg.thread_ts || msg.ts} / isReply=${Boolean(isReplyForLog)} / insertIndex=${options && typeof options.insertIndex === "number" ? options.insertIndex : "(append)"}`
+  );
+
   const doc = getOrCreateDocForYear(year, channel || {
     id: msg.channel || "unknown",
     name: msg.channel || "unknown"
@@ -682,6 +787,10 @@ function writeMessageToDoc(msg, channel, options) {
     });
   }
 
+  Logger.log(
+    `writeMessageToDoc: 完了 / channelId=${channelIdForLog} / ts=${msg.ts} / nextInsertIndex=${insertIndex === null ? "(append)" : insertIndex}`
+  );
+
   return {
     nextInsertIndex: insertIndex
   };
@@ -781,10 +890,18 @@ function fetchSlackImageBlob(file) {
 // 6 =====================================================================
 // =======================================================================
 function getThreadMessages(channel, ts) {
+  Logger.log(`getThreadMessages: Slack API呼び出し / channel=${channel} / ts=${ts}`);
   const url = `https://slack.com/api/conversations.replies?channel=${channel}&ts=${ts}`;
   const res = UrlFetchApp.fetch(url, { "headers": { "Authorization": "Bearer " + SLACK_TOKEN } });
   const json = JSON.parse(res.getContentText());
-  return json.ok ? json.messages : null;
+
+  if (!json.ok) {
+    Logger.log(`getThreadMessages: Slack API失敗 / channel=${channel} / ts=${ts} / error=${json.error}`);
+    return null;
+  }
+
+  Logger.log(`getThreadMessages: Slack API成功 / channel=${channel} / ts=${ts} / 件数=${json.messages.length}`);
+  return json.messages;
 }
 
 // 7 =====================================================================
@@ -820,6 +937,7 @@ function getOrCreateDocForYear(year, channel) {
 
   const safeChannelName = String(channelName).replace(/[\\/:*?"<>|#]/g, "_");
   const channelFolderName = `${safeChannelName}_${channelId}`;
+  Logger.log(`getOrCreateDocForYear: 開始 / year=${year} / channelFolder=${channelFolderName}`);
 
   const rootFolder = DriveApp.getFolderById(DOC_FOLDER_ID);
   const channelFolders = rootFolder.getFoldersByName(channelFolderName);
@@ -827,16 +945,20 @@ function getOrCreateDocForYear(year, channel) {
   const channelFolder = channelFolders.hasNext()
     ? channelFolders.next()
     : rootFolder.createFolder(channelFolderName);
+  Logger.log(`getOrCreateDocForYear: チャンネルフォルダ取得 / name=${channelFolderName} / id=${channelFolder.getId()}`);
 
   const fileName = `Slack_Log_${year}`;
   const files = channelFolder.getFilesByName(fileName);
 
   if (files.hasNext()) {
-    return DocumentApp.openById(files.next().getId());
+    const file = files.next();
+    Logger.log(`getOrCreateDocForYear: 既存Docを開きます / fileName=${fileName} / docId=${file.getId()}`);
+    return DocumentApp.openById(file.getId());
   }
 
   const doc = DocumentApp.create(fileName);
   DriveApp.getFileById(doc.getId()).moveTo(channelFolder);
+  Logger.log(`getOrCreateDocForYear: 新規Docを作成しました / fileName=${fileName} / docId=${doc.getId()}`);
 
   doc.getBody()
     .appendParagraph(`${year}年_Slack記録ドキュメント #${channelName}`)
