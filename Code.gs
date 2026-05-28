@@ -1152,3 +1152,122 @@ function testGetBotJoinedChannelNames() {
     Logger.log("------------------------------");
   });
 }
+
+// TEST-4 doPost 経由で親投稿と返信追記を確認する
+function testDoPostAppendText() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty("IMPORT_ACTIVE") === "1") {
+    throw new Error("IMPORT_ACTIVE=1 のため doPost追記テストを実行できません。過去ログ取得の完了後に再実行してください。");
+  }
+
+  if (getSlackEventQueue_().length) {
+    throw new Error("未処理のSlackイベントキューが残っています。processSlackEventQueue() または resetSlackEventQueue() の後に再実行してください。");
+  }
+
+  const originalGetThreadMessages = getThreadMessages;
+  const channel = {
+    id: "C_DOPOST_APPEND_TEST",
+    name: "doPost追記テスト"
+  };
+  const user = {
+    id: "U_DOPOST_APPEND_TEST",
+    name: "doPostテスト"
+  };
+  const now = new Date();
+  const label = Utilities.formatDate(now, "JST", "yyyy/MM/dd HH:mm:ss");
+  const parentTs = createTestSlackTimestamp_(now.getTime());
+  const replyTs = createTestSlackTimestamp_(now.getTime() + 1000);
+  const parentMsg = {
+    type: "message",
+    channel: channel.id,
+    user: user.id,
+    text: `[doPost追記テスト 親] ${label}`,
+    ts: parentTs
+  };
+  const replyMsg = {
+    type: "message",
+    channel: channel.id,
+    user: user.id,
+    text: `[doPost追記テスト 返信] ${label}`,
+    ts: replyTs,
+    thread_ts: parentTs
+  };
+
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.put(`channel:${channel.id}`, JSON.stringify(channel), 21600);
+    cache.put(user.id, user.name, 21600);
+
+    getThreadMessages = function(channelId, threadTs) {
+      if (channelId === channel.id && threadTs === parentTs) {
+        return [parentMsg, replyMsg];
+      }
+
+      return originalGetThreadMessages(channelId, threadTs);
+    };
+
+    doPost(buildTestDoPostRequest_(parentMsg));
+    processSlackEventQueue();
+
+    doPost(buildTestDoPostRequest_(replyMsg));
+    processSlackEventQueue();
+
+    const year = Utilities.formatDate(now, "JST", "yyyy");
+    Logger.log(`doPost追記テスト完了: #${channel.name} / Slack_Log_${year} を確認してください`);
+  } finally {
+    getThreadMessages = originalGetThreadMessages;
+    cleanupTestDoPostQueue_(channel.id, [parentTs, replyTs]);
+    CacheService.getScriptCache().removeAll([`channel:${channel.id}`, user.id]);
+  }
+}
+
+function buildTestDoPostRequest_(msg) {
+  const event = {
+    type: "message",
+    channel: msg.channel,
+    user: msg.user,
+    text: msg.text,
+    ts: msg.ts
+  };
+
+  if (msg.thread_ts) {
+    event.thread_ts = msg.thread_ts;
+  }
+
+  return {
+    postData: {
+      contents: JSON.stringify({
+        type: "event_callback",
+        event: event
+      })
+    }
+  };
+}
+
+function createTestSlackTimestamp_(millis) {
+  const seconds = Math.floor(millis / 1000);
+  const micros = (millis % 1000) * 1000;
+  return `${seconds}.${String(micros).padStart(6, "0")}`;
+}
+
+function cleanupTestDoPostQueue_(channelId, targetTsList) {
+  try {
+    const targetTsSet = new Set(targetTsList);
+    const queue = getSlackEventQueue_();
+    const cleanedQueue = queue.filter(item => {
+      return item.channelId !== channelId || !targetTsSet.has(item.ts);
+    });
+
+    if (cleanedQueue.length === queue.length) {
+      return;
+    }
+
+    saveSlackEventQueue_(cleanedQueue);
+
+    if (!cleanedQueue.length) {
+      deleteSlackEventQueueTrigger();
+    }
+  } catch (e) {
+    Logger.log(`doPost追記テストのキュー掃除に失敗しました: ${e}`);
+  }
+}
