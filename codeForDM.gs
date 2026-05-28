@@ -1241,10 +1241,10 @@ function getDMConversationDisplayName_(conversation) {
 
   if (conversation.is_im || conversation.type === "im" || channelId.startsWith("D")) {
     if (conversation.user) {
-      return `DM_${getUserName(conversation.user)}`;
+      return getUserName(conversation.user);
     }
 
-    return `DM_${conversation.name || conversation.name_normalized || channelId}`;
+    return conversation.name || conversation.name_normalized || channelId;
   }
 
   if (conversation.is_mpim || conversation.type === "mpim") {
@@ -1255,10 +1255,10 @@ function getDMConversationDisplayName_(conversation) {
       .filter(Boolean);
 
     if (memberNames.length) {
-      return `GroupDM_${memberNames.join("_")}`;
+      return memberNames.join("_");
     }
 
-    return `GroupDM_${conversation.name || conversation.name_normalized || channelId}`;
+    return conversation.name || conversation.name_normalized || channelId;
   }
 
   return conversation.name || conversation.name_normalized || channelId;
@@ -1529,7 +1529,7 @@ function testDoPostAppendText() {
   const originalDoneCacheKeys = props.getProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
   const channel = {
     id: "D_DOPOST_APPEND_TEST",
-    name: "DM_doPost追記テスト",
+    name: "doPost追記テスト",
     type: "im",
     is_im: true,
     is_mpim: false
