@@ -1160,11 +1160,9 @@ function testDoPostAppendText() {
     throw new Error("IMPORT_ACTIVE=1 のため doPost追記テストを実行できません。過去ログ取得の完了後に再実行してください。");
   }
 
-  if (getSlackEventQueue_().length) {
-    throw new Error("未処理のSlackイベントキューが残っています。processSlackEventQueue() または resetSlackEventQueue() の後に再実行してください。");
-  }
-
   const originalGetThreadMessages = getThreadMessages;
+  const originalQueue = getSlackEventQueue_();
+  const originalDoneCacheKeys = props.getProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
   const channel = {
     id: "C_DOPOST_APPEND_TEST",
     name: "doPost追記テスト"
@@ -1198,6 +1196,9 @@ function testDoPostAppendText() {
     cache.put(`channel:${channel.id}`, JSON.stringify(channel), 21600);
     cache.put(user.id, user.name, 21600);
 
+    Logger.log(`doPost追記テスト: 既存Slackイベントキュー ${originalQueue.length} 件を一時退避します`);
+    saveSlackEventQueue_([]);
+
     getThreadMessages = function(channelId, threadTs) {
       if (channelId === channel.id && threadTs === parentTs) {
         return [parentMsg, replyMsg];
@@ -1206,10 +1207,14 @@ function testDoPostAppendText() {
       return originalGetThreadMessages(channelId, threadTs);
     };
 
+    Logger.log("doPost追記テスト: 親投稿を doPost に投入します");
     doPost(buildTestDoPostRequest_(parentMsg));
+    Logger.log(`doPost追記テスト: 親投稿投入後のキュー件数=${getSlackEventQueue_().length}`);
     processSlackEventQueue();
 
+    Logger.log("doPost追記テスト: 返信投稿を doPost に投入します");
     doPost(buildTestDoPostRequest_(replyMsg));
+    Logger.log(`doPost追記テスト: 返信投稿投入後のキュー件数=${getSlackEventQueue_().length}`);
     processSlackEventQueue();
 
     const year = Utilities.formatDate(now, "JST", "yyyy");
@@ -1217,7 +1222,69 @@ function testDoPostAppendText() {
   } finally {
     getThreadMessages = originalGetThreadMessages;
     cleanupTestDoPostQueue_(channel.id, [parentTs, replyTs]);
+    saveSlackEventQueue_(originalQueue);
+
+    if (originalDoneCacheKeys === null) {
+      props.deleteProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
+    } else {
+      props.setProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP, originalDoneCacheKeys);
+    }
+
+    if (originalQueue.length) {
+      createSlackEventQueueTrigger();
+    } else {
+      deleteSlackEventQueueTrigger();
+    }
+
     CacheService.getScriptCache().removeAll([`channel:${channel.id}`, user.id]);
+    Logger.log(`doPost追記テスト: 既存Slackイベントキュー ${originalQueue.length} 件を復元しました`);
+  }
+}
+
+// TEST-5 doPost が Slackイベントをキューに積めるかだけを確認する
+function testDoPostEnqueueOnly() {
+  const props = PropertiesService.getScriptProperties();
+  const originalQueue = getSlackEventQueue_();
+  const originalDoneCacheKeys = props.getProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
+  const msg = {
+    type: "message",
+    channel: "C_DOPOST_QUEUE_TEST",
+    user: "U_DOPOST_QUEUE_TEST",
+    text: "doPostキュー投入テスト",
+    ts: createTestSlackTimestamp_(new Date().getTime())
+  };
+
+  try {
+    Logger.log(`doPostキュー投入テスト: 既存Slackイベントキュー ${originalQueue.length} 件を一時退避します`);
+    saveSlackEventQueue_([]);
+
+    doPost(buildTestDoPostRequest_(msg));
+
+    const queue = getSlackEventQueue_();
+    Logger.log(`doPostキュー投入テスト: doPost後のキュー件数=${queue.length}`);
+
+    if (!queue.length) {
+      throw new Error("doPost がテスト投稿をキューに追加しませんでした");
+    }
+
+    Logger.log(`doPostキュー投入テスト: 追加されたキュー=${JSON.stringify(queue[0])}`);
+  } finally {
+    cleanupTestDoPostQueue_(msg.channel, [msg.ts]);
+    saveSlackEventQueue_(originalQueue);
+
+    if (originalDoneCacheKeys === null) {
+      props.deleteProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP);
+    } else {
+      props.setProperty(SLACK_EVENT_DONE_CACHE_KEYS_PROP, originalDoneCacheKeys);
+    }
+
+    if (originalQueue.length) {
+      createSlackEventQueueTrigger();
+    } else {
+      deleteSlackEventQueueTrigger();
+    }
+
+    Logger.log(`doPostキュー投入テスト: 既存Slackイベントキュー ${originalQueue.length} 件を復元しました`);
   }
 }
 
@@ -1269,5 +1336,30 @@ function cleanupTestDoPostQueue_(channelId, targetTsList) {
     }
   } catch (e) {
     Logger.log(`doPost追記テストのキュー掃除に失敗しました: ${e}`);
+  }
+}
+
+// TEST-6 Slackイベントキューの詰まり確認
+function testLogSlackEventQueueStatus() {
+  const props = PropertiesService.getScriptProperties();
+  const queue = getSlackEventQueue_();
+
+  Logger.log(`IMPORT_ACTIVE=${props.getProperty("IMPORT_ACTIVE") || "(未設定)"}`);
+  Logger.log(`Slackイベントキュー件数=${queue.length}`);
+
+  queue.slice(0, 20).forEach((item, index) => {
+    Logger.log(
+      [
+        `#${index + 1}`,
+        `key=${item.key}`,
+        `channelId=${item.channelId}`,
+        `ts=${item.ts}`,
+        `threadTs=${item.threadTs}`
+      ].join(" / ")
+    );
+  });
+
+  if (queue.length > 20) {
+    Logger.log(`残り ${queue.length - 20} 件は省略しました`);
   }
 }
