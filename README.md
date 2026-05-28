@@ -1,14 +1,14 @@
 # slack-to-google-docs-archive
 
 Slack 投稿を Google Docs に保存する Google Apps Script です．
-参考: https://zenn.dev/gemcook/articles/38beb65aa8371c
+**参考: https://zenn.dev/gemcook/articles/38beb65aa8371c**
 GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript にコピペ．ファイル名は任意．
 ⚠️ 一時変数を保存するのでGoogleドキュメント不可．必ずスプレッドシートをGASファイルに設定．
 
 ## 使い方
 
 1. 過去ログ取得: ボタンから `confirmCreateImportPastMessagesTrigger()` を 1 回実行する
-2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときはボタンから `confirmResetSlackEventQueue()` を 1 回実行する
+2. 今後の投稿保存: 新規投稿タイミングで自動実行
 3. 過去ログをやり直す: ボタンから `confirmResetImportPastMessages()` 実行後、`confirmCreateImportPastMessagesTrigger()` を再実行する
    - `resetImportPastMessages()` は過去ログ取得の進捗と処理済み記録を削除する
 
@@ -23,7 +23,6 @@ GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript に
 ### 自動実行(新規メッセージ)
 - Slack Events API の投稿イベントを受け取る
 - 新規投稿をキューに積み、1 分ごとに Google Docs へ保存する
-- 新規投稿の自動保存が止まった場合は `resetSlackEventQueue()` でキューと関連トリガーをリセットする
 
 ### 共通
 - チャンネル別フォルダ、年別ドキュメントに保存する
@@ -66,8 +65,7 @@ Event Subscriptions > Subscribe to bot events:
 ## 注意点
 
 - Slack 署名検証は未実装
-- 長いスレッドのページング取得は未対応
 - 既存 Docs の並び順は自動では並べ替えない
 - 処理済み記録は `_slack_processed_messages` シートに保存する
 - 過去ログ取得が異常停止して自動保存が進まない場合は、`resetImportPastMessages()` で `IMPORT_ACTIVE` を解除する
-- 新規投稿の自動保存だけが止まった場合は、`resetSlackEventQueue()` で未処理キューと `processSlackEventQueue` トリガーをリセットする
+- 自動保存が復旧しない場合の最終手段として `resetSlackEventQueue()` を使えるが、未処理キューは削除される

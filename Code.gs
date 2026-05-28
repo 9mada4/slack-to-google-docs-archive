@@ -890,18 +890,46 @@ function fetchSlackImageBlob(file) {
 // 6 =====================================================================
 // =======================================================================
 function getThreadMessages(channel, ts) {
-  Logger.log(`getThreadMessages: Slack API呼び出し / channel=${channel} / ts=${ts}`);
-  const url = `https://slack.com/api/conversations.replies?channel=${channel}&ts=${ts}`;
-  const res = UrlFetchApp.fetch(url, { "headers": { "Authorization": "Bearer " + SLACK_TOKEN } });
-  const json = JSON.parse(res.getContentText());
+  const messages = [];
+  let cursor = "";
 
-  if (!json.ok) {
-    Logger.log(`getThreadMessages: Slack API失敗 / channel=${channel} / ts=${ts} / error=${json.error}`);
-    return null;
-  }
+  do {
+    const params = [
+      `channel=${encodeURIComponent(channel)}`,
+      `ts=${encodeURIComponent(ts)}`,
+      "limit=200"
+    ];
 
-  Logger.log(`getThreadMessages: Slack API成功 / channel=${channel} / ts=${ts} / 件数=${json.messages.length}`);
-  return json.messages;
+    if (cursor) {
+      params.push(`cursor=${encodeURIComponent(cursor)}`);
+    }
+
+    Logger.log(`getThreadMessages: Slack API呼び出し / channel=${channel} / ts=${ts} / cursor=${cursor ? "あり" : "なし"}`);
+    const url = `https://slack.com/api/conversations.replies?${params.join("&")}`;
+    const res = UrlFetchApp.fetch(url, { "headers": { "Authorization": "Bearer " + SLACK_TOKEN } });
+    const json = JSON.parse(res.getContentText());
+
+    if (!json.ok) {
+      Logger.log(`getThreadMessages: Slack API失敗 / channel=${channel} / ts=${ts} / error=${json.error}`);
+      return null;
+    }
+
+    messages.push(...json.messages);
+
+    cursor = json.response_metadata && json.response_metadata.next_cursor
+      ? json.response_metadata.next_cursor
+      : "";
+
+    Logger.log(`getThreadMessages: Slack API成功 / channel=${channel} / ts=${ts} / 今回=${json.messages.length}件 / 累計=${messages.length}件 / nextCursor=${cursor ? "あり" : "なし"}`);
+
+    if (cursor) {
+      Utilities.sleep(1200);
+    }
+
+  } while (cursor);
+
+  Logger.log(`getThreadMessages: Slack API取得完了 / channel=${channel} / ts=${ts} / 件数=${messages.length}`);
+  return messages;
 }
 
 // 7 =====================================================================
