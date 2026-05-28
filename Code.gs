@@ -241,15 +241,18 @@ function doPost(e) {
         throw new Error("Slack event queue lock timeout");
       }
 
+      const queue = getSlackEventQueue_();
       const cache = CacheService.getScriptCache();
       const doneKey = getSlackEventDoneCacheKey_(key);
-      
-      // 直近で処理済みなら何もしない
+
+      // 直近で処理済みでも，未処理キューが残っていれば後処理トリガーだけ復旧する
       if (cache.get(doneKey)) {
+        if (queue.length) {
+          createSlackEventQueueTrigger();
+        }
+
         return ContentService.createTextOutput("ok");
       }
-
-      const queue = getSlackEventQueue_();
 
       // すでにキュー済みなら重複追加しない
       const alreadyQueued = queue.some(item => item.key === key);
@@ -262,8 +265,10 @@ function doPost(e) {
         });
 
         saveSlackEventQueue_(queue);
+      }
 
-        // Slack投稿が来たときだけ，後処理トリガーを作成する
+      // キューが残っている限り，後処理トリガーが消えていても復旧する
+      if (queue.length) {
         createSlackEventQueueTrigger();
       }
 
