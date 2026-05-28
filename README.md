@@ -46,6 +46,10 @@ OAuth & Permissions > Bot Token Scopes:
 - `channels:history`
 - `groups:read`
 - `groups:history`
+- `im:read`
+- `im:history`
+- `mpim:read`
+- `mpim:history`
 - `files:read`
 - `users:read`
 
