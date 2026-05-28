@@ -2,8 +2,9 @@
 // 初期設定・復旧メモ
 
 // 1. 過去ログ取得: ボタンから `confirmCreateImportPastMessagesTrigger()` を 1 回実行する
-// 2. 今後の投稿保存: 新規投稿タイミングで自動実行．自動保存されないときはボタンから `confirmResetSlackEventQueue()` を 1 回実行する
+// 2. 今後の投稿保存: 新規投稿タイミングで自動実行
 // 3. 過去ログをやり直す: ボタンから `confirmResetImportPastMessages()` 実行後、`confirmCreateImportPastMessagesTrigger()` を再実行する
+//    - `resetImportPastMessages()` は過去ログ取得の進捗と処理済み記録を削除する
 // ===============================================================
 // 歯車>スクリプトプロパティに`SLACK_TOKEN`, `DOC_FOLDER_ID`を設定
 
