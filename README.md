@@ -64,12 +64,15 @@ Event Subscriptions > Subscribe to bot events:
 - Subscribe to bot events:
   - `message.channels`
   - `message.groups`
+  - `message.im`
+  - `message.mpim`
 
 参考記事の `reactions:read` / `reaction_added` は、現行実装では未使用です。
 
 2. `DOC_FOLDER_ID`
 - GoogleDriveのFolderのリンク>https://drive.google.com/drive/folders/ここがDOC_FOLDER_ID
 
+3. 権限を変更したら，OAuth & Permissions > **Reinstall to Workspace**
 
 ## 注意点
 
