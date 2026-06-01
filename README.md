@@ -6,7 +6,7 @@ Slack 投稿を Google Docs に保存する Google Apps Script です．
 
 GASコードは `Code.gs` を適当なスプレッドシートの Apps Sript にコピペ．ファイル名は任意．
 
-
+サンプルのExcelファイルをGoogleドライブにアップロード > ファイル名横の[xlsx]からスプレッドシートに変換
 
 ⚠️ 一時変数を保存するのでGoogleドキュメント不可．必ずスプレッドシートをGASファイルに設定．
 
