@@ -253,7 +253,7 @@ function doPost(e) {
   if (isImportTriggerMentionEvent(event)) {
     startImportForMentionedConversation_(event);
   } else {
-    Logger.log(`doPost: Botメンションではないため過去ログ取得を開始しません / type=${event.type || "(none)"} / subtype=${event.subtype || "(none)"}`);
+    Logger.log(`doPost: BotメンションまたはDMメッセージではないため過去ログ取得を開始しません / type=${event.type || "(none)"} / subtype=${event.subtype || "(none)"}`);
   }
 
   return ContentService.createTextOutput("ok");
@@ -272,6 +272,10 @@ function isImportTriggerMentionEvent(event) {
     return false;
   }
 
+  if (isDirectMessageChannelEvent_(event)) {
+    return true;
+  }
+
   const botUserId = getSlackSelfUserId();
   if (!botUserId) {
     Logger.log("isImportTriggerMentionEvent: BotユーザーIDを取得できないためメンション判定できません");
@@ -280,6 +284,13 @@ function isImportTriggerMentionEvent(event) {
 
   const mentionPattern = new RegExp(`<@${escapeRegExp_(botUserId)}(?:\\|[^>]+)?>`);
   return mentionPattern.test(String(event.text || ""));
+}
+
+function isDirectMessageChannelEvent_(event) {
+  const channelType = event.channel_type || "";
+  const channelId = event.channel || "";
+
+  return channelType === "im" || channelId.startsWith("D");
 }
 
 function startImportForMentionedConversation_(event) {
@@ -467,6 +478,7 @@ function formatSlackMessageForLog_(msg) {
   return [
     `type=${msg.type || "(none)"}`,
     `channel=${msg.channel || "(none)"}`,
+    `channelType=${msg.channel_type || "(none)"}`,
     `user=${msg.user || "(none)"}`,
     `ts=${msg.ts || "(none)"}`,
     `threadTs=${msg.thread_ts || "(none)"}`,
